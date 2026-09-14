@@ -50,21 +50,24 @@ android {
         }
 
         create("release") {
-            val ksPath = keystoreProperties.getProperty("storeFile")
+            val configuredPath = keystoreProperties.getProperty("storeFile")
                 ?: System.getenv("ANDROID_RELEASE_KEYSTORE")
-                ?: sequenceOf(
-                    "${System.getProperty("user.home")}/Documents/android-keys/release.jks",
-                    "${System.getProperty("user.home")}/android_keys/release.jks"
-                ).firstOrNull { file(it).exists() }
-                ?: "${System.getProperty("user.home")}/Documents/android-keys/release.jks"
-            val ksFile = file(ksPath)
-            if (ksFile.exists()) {
+            val ksFile = sequenceOf(
+                configuredPath?.let { file(it) },
+                configuredPath?.let { keystorePropsFile?.parentFile?.resolve(File(it).name) },
+                file("${System.getProperty("user.home")}/Documents/android-keys/release.jks"),
+                file("${System.getProperty("user.home")}/android_keys/release.jks"),
+                rootProject.file("release.jks"),
+                file("release.jks")
+            ).filterNotNull().firstOrNull { it.exists() }
+
+            if (ksFile != null) {
                 storeFile = ksFile
                 storePassword = keystoreProperties.getProperty("storePassword")
                     ?: System.getenv("ANDROID_RELEASE_KEYSTORE_PASSWORD")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                     ?: System.getenv("ANDROID_RELEASE_KEYSTORE_ALIAS")
-                    ?: "vmusic"
+                    ?: "master-key"
                 keyPassword = keystoreProperties.getProperty("keyPassword")
                     ?: System.getenv("ANDROID_RELEASE_KEYSTORE_PASSWORD")
                     ?: storePassword
