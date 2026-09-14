@@ -1,0 +1,39 @@
+*.iml
+.gradle
+local.properties
+.idea/
+*.ids
+*.ipr
+*.iws
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+.kotlin/
+.quickjs_cache/
+jniLibs/
+*.apk
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+captures/
+.navigation/
+proguard/
+gradle-app.setting
+!gradle-wrapper.jar
+.gradletasknamecache
+errors.txt
+# Native binaries
+**/src/*/resources/native/
+
+# Keystore & Signing
+*.jks
+*.keystore
+keystore.properties
+
+# Graphify Knowledge Graph
+graphify-out/

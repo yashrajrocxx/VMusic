@@ -1,0 +1,147 @@
+name: Stable Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Decode Release Keystore
+        run: |
+          echo "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > app/release.jks
+
+      - name: Extract App Version & Changelog
+        id: vars
+        run: |
+          VERSION=$(grep "version =" build.gradle.kts | head -n 1 | sed -E 's/.*version = "(.*)".*/\1/')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          git fetch --tags --force
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            COMMIT_RANGE="--max-count=20"
+            HAS_MORE=false
+          else
+            COMMIT_RANGE="$PREVIOUS_TAG..HEAD"
+            TOTAL_COMMITS=$(git rev-list --count $COMMIT_RANGE)
+            if [ $TOTAL_COMMITS -gt 20 ]; then HAS_MORE=true; else HAS_MORE=false; fi
+          fi
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "full_changelog<<$EOF" >> $GITHUB_OUTPUT
+          git log $COMMIT_RANGE --pretty=format:"- %s" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+          echo "truncated_changelog<<$EOF" >> $GITHUB_OUTPUT
+          git log $COMMIT_RANGE -n 20 --pretty=format:"- %s" >> $GITHUB_OUTPUT
+          if [ "$HAS_MORE" = "true" ]; then
+            echo -e "\n\n... and more! See the full changelog at:" >> $GITHUB_OUTPUT
+            echo "https://github.com/${{ github.repository }}/releases/tag/v$VERSION" >> $GITHUB_OUTPUT
+          fi
+          echo "" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --no-configuration-cache
+        env:
+          ANDROID_RELEASE_KEYSTORE: release.jks
+          ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_RELEASE_KEYSTORE_ALIAS: ${{ secrets.ANDROID_RELEASE_KEYSTORE_ALIAS }}
+
+      - name: Rename APKs for Distribution
+        run: |
+          cd app/build/outputs/apk/release
+          for apk in *.apk; do
+            [ -f "$apk" ] || continue
+            if [[ "$apk" == *"-arm64-v8a-"* ]]; then
+              mv "$apk" "vmusic-v${{ env.VERSION }}-arm64-v8a.apk"
+            elif [[ "$apk" == *"-armeabi-v7a-"* ]]; then
+              mv "$apk" "vmusic-v${{ env.VERSION }}-armeabi-v7a.apk"
+            else
+              mv "$apk" "vmusic-v${{ env.VERSION }}.apk"
+            fi
+          done
+
+      - name: Hash APKs
+        run: |
+          cd app/build/outputs/apk/release
+          sha256sum *.apk > checksums.txt
+          cat checksums.txt
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        if: env.GPG_SIGNING_KEY != ''
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+        with:
+          gpg_private_key: ${{ secrets.GPG_SIGNING_KEY }}
+          passphrase: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
+
+      - name: Sign APKs
+        if: env.GPG_SIGNING_KEY != ''
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+        run: |
+          cd app/build/outputs/apk/release
+          for apk in *.apk; do
+            [ -f "$apk" ] || continue
+            gpg --detach-sign --armor "$apk"
+          done
+
+      - name: Upload to Telegram
+        uses: appleboy/telegram-action@master
+        if: env.TELEGRAM_TOKEN != ''
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            VMusic: New Stable Release v${{ env.VERSION }}
+
+            Branch: ${{ github.ref_name }}
+
+            Changelog:
+            ${{ steps.vars.outputs.truncated_changelog }}
+          document: "app/build/outputs/apk/release/*.apk"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/release/*.asc
+            app/build/outputs/apk/release/checksums.txt
+          body: |
+            Official Release of VMusic v${{ env.VERSION }}.
+
+            Changelog:
+            ${{ steps.vars.outputs.full_changelog }}
+
+
