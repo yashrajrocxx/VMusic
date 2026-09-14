@@ -37,3 +37,6 @@ keystore.properties
 
 # Graphify Knowledge Graph
 graphify-out/
+
+# Local release build artifacts
+release_apks/
