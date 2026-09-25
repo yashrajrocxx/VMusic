@@ -49,6 +49,7 @@ import app.pulse.android.ui.screens.appearanceSettingsRoute
 import app.pulse.android.ui.screens.cacheSettingsRoute
 import app.pulse.android.ui.screens.databaseSettingsRoute
 import app.pulse.android.ui.screens.logsRoute
+import app.pulse.android.ui.screens.localSettingsRoute
 import app.pulse.android.ui.screens.otherSettingsRoute
 import app.pulse.android.ui.screens.playerSettingsRoute
 import app.pulse.android.utils.secondary
@@ -85,6 +86,12 @@ fun SettingsScreen(
                 description = stringResource(R.string.player_description),
                 icon = R.drawable.play,
                 onClick = { playerSettingsRoute.global() }
+            )
+            SettingsMenuEntry(
+                title = stringResource(R.string.local_music),
+                description = stringResource(R.string.local_music_description),
+                icon = R.drawable.musical_notes,
+                onClick = { localSettingsRoute.global() }
             )
         }
 

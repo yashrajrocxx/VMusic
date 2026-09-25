@@ -52,7 +52,7 @@ fun SongItem(
     hideExplicit: Boolean = AppearancePreferences.hideExplicit
 ) = SongItem(
     modifier = modifier,
-    thumbnailUrl = song.thumbnail?.size(thumbnailSize.px),
+    thumbnailUrl = song.thumbnail?.size(thumbnailSize.px * 2),
     title = song.info?.name,
     authors = song.authors?.joinToString("") { it.name.orEmpty() },
     duration = song.durationText,
@@ -80,7 +80,7 @@ fun SongItem(
 
     SongItem(
         modifier = modifier,
-        thumbnailUrl = song.mediaMetadata.artworkUri.thumbnail(thumbnailSize.px)?.toString(),
+        thumbnailUrl = song.mediaMetadata.artworkUri.thumbnail(thumbnailSize.px * 2)?.toString(),
         title = song.mediaMetadata.title?.toString(),
         authors = song.mediaMetadata.artist?.toString(),
         duration = extras?.durationText,
@@ -110,7 +110,7 @@ fun SongItem(
 ) = SongItem(
     modifier = modifier,
     index = index,
-    thumbnailUrl = song.thumbnailUrl?.thumbnail(thumbnailSize.px),
+    thumbnailUrl = song.thumbnailUrl?.thumbnail(thumbnailSize.px * 2),
     title = song.title,
     authors = song.artistsText,
     duration = song.durationText,
@@ -159,9 +159,23 @@ private fun SongItem(
                 if (thumbnailUrl != null) {
                     AsyncImage(
                         model = thumbnailUrl,
+                        // Local files without embedded art (and any dead link)
+                        // fall back to a music icon instead of a blank box,
+                        // like the radio placeholder does.
+                        error = painterResource(R.drawable.musical_notes),
+                        fallback = painterResource(R.drawable.musical_notes),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Image(
+                        painter = painterResource(R.drawable.musical_notes),
+                        contentDescription = null,
+                        colorFilter = ColorFilter.tint(colorPalette.textSecondary),
+                        modifier = Modifier
+                            .fillMaxSize(0.5f)
+                            .align(Alignment.Center)
                     )
                 }
 

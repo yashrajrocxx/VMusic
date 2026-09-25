@@ -36,18 +36,18 @@ import javax.sound.sampled.SourceDataLine
 import kotlin.math.log10
 import kotlin.math.roundToLong
 
-// bridge: components.log(tag, msg) → private log(msg) so all 30+ call sites unchanged
+// bridge: components.log(tag, msg) -> private log(msg) so all 30+ call sites unchanged
 private fun log(msg: String) {
     sharedLog("PlayerService", msg)
 }
 
 /** return value from playViaStream to inform the caller what action to take. */
 private enum class StreamEnd {
-    /** stream ended naturally at expected position → safe to advance to next. */
+    /** stream ended naturally at expected position -> safe to advance to next. */
     COMPLETED,
-    /** stream did not complete (cancelled/paused) → caller does nothing. */
+    /** stream did not complete (cancelled/paused) -> caller does nothing. */
     INTERRUPTED,
-    /** cache-hit stream ended naturally but position << duration → cache was incomplete. */
+    /** cache-hit stream ended naturally but position << duration -> cache was incomplete. */
     INCOMPLETE_CACHE
 }
 
@@ -300,10 +300,6 @@ class PlayerService {
 
     private fun playInternal(song: Song, startMs: Long = 0L) {
         val videoId = song.id
-        if (videoId == null) {
-            _state.update { it.copy(isLoading = false, error = "No video ID") }
-            return
-        }
 
         // debounce: skip if already loading/playing same video
         val s = _state.value
@@ -368,7 +364,7 @@ class PlayerService {
         val song = s.currentSong ?: return
 
         if (s.isEnded) {
-            log("resume from ended → restart")
+            log("resume from ended -> restart")
             playInternal(song)
             return
         }
@@ -415,7 +411,7 @@ class PlayerService {
         _state.update { it.copy(currentPositionMs = positionMs) }
 
         if (dur > 0 && positionMs >= dur) {
-            log("seek $positionMs ≥ $dur → endSong")
+            log("seek $positionMs ≥ $dur -> endSong")
             advanceOrStop()
             return
         }
@@ -436,14 +432,14 @@ class PlayerService {
         val dur = _state.value.durationMs
         val maxSeek = (dur - 1000L).coerceAtLeast(0L)
         val target = (cur + sec * 1000L).coerceIn(0L, maxSeek)
-        log("skipForward $sec → $target")
+        log("skipForward $sec -> $target")
         seek(target)
     }
 
     fun skipBackward(sec: Int = 10) {
         val cur = _state.value.currentPositionMs
         val target = (cur - sec * 1000L).coerceAtLeast(0L)
-        log("skipBackward $sec → $target")
+        log("skipBackward $sec -> $target")
         seek(target)
     }
 

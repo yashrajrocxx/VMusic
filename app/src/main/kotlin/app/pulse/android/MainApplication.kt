@@ -165,6 +165,7 @@ import com.valentinilk.shimmer.LocalShimmerTheme
 import dev.kdrag0n.monet.theme.ColorScheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -174,7 +175,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 private const val TAG = "MainActivity"
-private val coroutineScope = CoroutineScope(Dispatchers.IO)
+// SupervisorJob: one failed coroutine (e.g. a bad deep link payload handled by
+// handleUrl) must never cancel the scope for every future launch.
+private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 // Viewmodel in order to avoid recreating the entire Player state (WORKAROUND)
 class MainViewModel : ViewModel() {
@@ -284,10 +287,12 @@ class MainActivity : ComponentActivity(), MonetColorsChangedListener {
         }
 
         LaunchedEffect(app.pulse.android.preferences.DataPreferences.versionCheckPeriod) {
-            if (app.pulse.android.preferences.DataPreferences.versionCheckPeriod != app.pulse.android.preferences.DataPreferences.VersionCheckPeriod.Off) {
-                kotlinx.coroutines.delay(10_000)
-                app.pulse.android.service.VersionCheckWorker.executeOneTime(this@MainActivity.applicationContext)
-            }
+            // Ensure the periodic check is scheduled (kept across restarts, never reset),
+            // so the update check runs once per period instead of on every launch.
+            app.pulse.android.service.VersionCheckWorker.schedule(
+                this@MainActivity.applicationContext,
+                app.pulse.android.preferences.DataPreferences.versionCheckPeriod.period
+            )
         }
 
         val appearance = appearance(
@@ -730,15 +735,36 @@ class MainApplication : Application(), SingletonImageLoader.Factory, Configurati
             app.pulse.android.ui.screens.home.HomeCache.initFromDisk(filesDir)
             MonetCompat.enablePaletteCompat()
             with(ServiceNotifications) { createAll() }
+            // Warm the stream pipeline (player config, cipher service, TLS)
+            // after startup settles so the first tap-to-play doesn't pay the
+            // whole cold cost. Delayed to avoid contending with the home feed.
+            delay(10_000)
+            runCatching { app.pulse.android.playback.InnerTubeXPlayer.prewarm() }
         }
 
+    }
+
+    /**
+     * RAM-aware Coil memory cache. 30% of heap on a 2 GB device is too much and
+     * forces GC churn while scrolling; scale it down on low-end devices so the
+     * app stays fluid instead of evicting/skipping frames.
+     */
+    private fun memoryCachePercent(): Double {
+        val heapMb = runCatching {
+            (getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager).memoryClass
+        }.getOrDefault(256)
+        return when {
+            heapMb <= 128 -> 0.12   // 1–2 GB devices
+            heapMb <= 256 -> 0.18   // 3–4 GB devices
+            else -> 0.25            // 6+ GB devices
+        }
     }
 
     override fun newImageLoader(context: PlatformContext) = ImageLoader.Builder(this)
         .crossfade(false)
         .memoryCache {
             MemoryCache.Builder()
-                .maxSizePercent(context, 0.30)
+                .maxSizePercent(context, memoryCachePercent())
                 .build()
         }
         .diskCache {

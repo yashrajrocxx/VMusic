@@ -30,6 +30,7 @@ import app.pulse.android.ui.screens.settings.AccountSettings
 import app.pulse.android.ui.screens.settings.AppearanceSettings
 import app.pulse.android.ui.screens.settings.CacheSettings
 import app.pulse.android.ui.screens.settings.DatabaseSettings
+import app.pulse.android.ui.screens.settings.LocalSettings
 import app.pulse.android.ui.screens.settings.LoginScreen
 import app.pulse.android.ui.screens.settings.LogsScreen
 import app.pulse.android.ui.screens.settings.OtherSettings
@@ -40,6 +41,7 @@ import app.pulse.compose.routing.Route0
 import app.pulse.compose.routing.Route1
 import app.pulse.compose.routing.Route3
 import app.pulse.compose.routing.Route4
+import app.pulse.compose.routing.RouteHandler
 import app.pulse.compose.routing.RouteHandlerScope
 import app.pulse.core.data.enums.BuiltInPlaylist
 import io.ktor.http.Url
@@ -70,6 +72,7 @@ val databaseSettingsRoute = Route0("databaseSettingsRoute")
 val otherSettingsRoute = Route0("otherSettingsRoute")
 val aboutSettingsRoute = Route0("aboutSettingsRoute")
 val accountSettingsRoute = Route0("accountSettingsRoute")
+val localSettingsRoute = Route0("localSettingsRoute")
 val loginRoute = Route0("loginRoute")
 
 @Composable
@@ -131,7 +134,20 @@ fun RouteHandlerScope.GlobalRoutes() {
     }
 
     accountSettingsRoute {
-        AccountSettings()
+        // Nested handler (same pattern as AlbumScreen): global routes only
+        // land on idle handlers, so without this the login screen tapped from
+        // inside Account would be dropped while this route is showing, and the
+        // WebView would never open. Back returns here from nested routes.
+        RouteHandler {
+            GlobalRoutes()
+            Content {
+                AccountSettings()
+            }
+        }
+    }
+
+    localSettingsRoute {
+        LocalSettings()
     }
 
     loginRoute {

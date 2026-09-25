@@ -184,6 +184,15 @@ internal constructor(
     fun expandSoft() = expand(spring<Dp>(dampingRatio = 0.75f, stiffness = 340f))
     fun dismissSoft() = dismiss(spring<Dp>(dampingRatio = 0.82f, stiffness = 360f))
 
+    /**
+     * Snappy variants for menus: a slow close leaves a dead window where taps
+     * land on the dying sheet instead of the button beneath, which reads as a
+     * dead button. Additive only; the player sheet keeps the soft specs.
+     */
+    fun expandFast() = expand(spring<Dp>(dampingRatio = 0.9f, stiffness = 700f))
+    fun collapseFast() = collapse(spring<Dp>(dampingRatio = 0.9f, stiffness = 700f))
+    fun dismissFast() = dismiss(spring<Dp>(dampingRatio = 0.9f, stiffness = 700f))
+
     fun snapTo(value: Dp) = coroutineScope.launch {
         animatable.snapTo(value)
     }

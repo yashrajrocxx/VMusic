@@ -490,7 +490,7 @@ private fun CarouselRow(
                 .horizontalScroll(scrollState)
                 .drawWithContent {
                     drawContent()
-                    // INNER to horizontalScroll → content coords, use viewportWidth for right edge
+                    // INNER to horizontalScroll -> content coords, use viewportWidth for right edge
                     val fadeW = Sizes.homeFadeWidth.dp.toPx()
                     val scrollOff = scrollState.value.toFloat()
                     val vw = if (viewportWidth > 0f) viewportWidth else size.width

@@ -1,10 +1,25 @@
 package app.pulse.android.ui.screens.radio
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -12,8 +27,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,7 +43,9 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.pulse.android.LocalPlayerServiceBinder
@@ -33,16 +56,22 @@ import app.pulse.android.models.RadioStation
 import app.pulse.android.preferences.RadioPreferences
 import app.pulse.android.ui.components.LocalMenuState
 import app.pulse.android.ui.components.MusicBars
+import app.pulse.android.ui.components.ShimmerHost
 import app.pulse.android.ui.components.themed.CollapsingHeader
 import app.pulse.android.ui.components.themed.CollapsingHeaderContentSpacer
 import app.pulse.android.ui.components.themed.HeaderPillRow
 import app.pulse.android.ui.components.themed.Menu
 import app.pulse.android.ui.components.themed.SegmentedControl
+import app.pulse.android.ui.items.ItemContainer
+import app.pulse.android.ui.items.ItemInfoContainer
+import app.pulse.android.ui.items.SongItemPlaceholder
+import app.pulse.android.utils.center
 import app.pulse.android.utils.medium
 import app.pulse.android.utils.playRadio
 import app.pulse.android.utils.playingSong
 import app.pulse.android.utils.secondary
 import app.pulse.android.utils.semiBold
+import app.pulse.android.utils.shouldBePlaying
 import app.pulse.core.ui.Dimensions
 import app.pulse.core.ui.LocalAppearance
 import coil3.compose.AsyncImage
@@ -55,7 +84,7 @@ private val countryStationsCache = mutableMapOf<String, List<RadioStation>>()
 @Composable
 fun RadioScreen() {
     val binder = LocalPlayerServiceBinder.current
-    val (colorPalette, typography, _, thumbnailShape) = LocalAppearance.current
+    val (colorPalette, typography) = LocalAppearance.current
     val menuState = LocalMenuState.current
 
     // Active filter defaults to Maharashtra
@@ -69,7 +98,7 @@ fun RadioScreen() {
     // Player state
     val (currentMediaId, isPlaying) = playingSong(binder)
 
-    // Which station the user just tapped, so its play/pause button can show a
+    // Which station the user just tapped, so its artwork can show a
     // loading indicator (matching the mini player) until the radio starts.
     var pendingStationId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(binder?.isLoadingRadio) {
@@ -129,6 +158,16 @@ fun RadioScreen() {
         RadioPreferences.favoriteStations = updated
     }
 
+    fun togglePlay(station: RadioStation, isThisStationPlaying: Boolean) {
+        if (isThisStationPlaying) {
+            val player = binder?.player ?: return
+            if (player.shouldBePlaying) player.pause() else player.play()
+        } else {
+            pendingStationId = station.id
+            binder?.playRadio(station)
+        }
+    }
+
     val lazyListState = rememberLazyListState()
 
     // Scroll to top on filter switch
@@ -136,8 +175,12 @@ fun RadioScreen() {
         lazyListState.scrollToItem(0)
     }
 
+    val sectionTextModifier = Modifier
+        .padding(horizontal = 16.dp)
+        .padding(top = 24.dp, bottom = 8.dp)
+
     CollapsingHeader(
-        title = "Radio",
+        title = stringResource(R.string.radio),
         lazyListState = lazyListState,
         expandedFontSize = 38.sp,
         collapsedFontSize = 28.sp,
@@ -191,95 +234,67 @@ fun RadioScreen() {
                 Spacer(modifier = Modifier.height(CollapsingHeaderContentSpacer))
             }
 
-            // Compact Favorites Shelf
             if (favoriteStations.isNotEmpty()) {
-                item(key = "favorites_section") {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp, bottom = 6.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = Dimensions.items.horizontalPadding, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Image(
-                                painter = painterResource(R.drawable.heart),
-                                contentDescription = null,
-                                colorFilter = ColorFilter.tint(colorPalette.accent),
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            BasicText(
-                                text = "Favorites",
-                                style = typography.xs.semiBold.copy(color = colorPalette.text)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            BasicText(
-                                text = "(${favoriteStations.size})",
-                                style = typography.xs.secondary.copy(color = colorPalette.textSecondary)
-                            )
-                        }
+                item(key = "favorites_title") {
+                    BasicText(
+                        text = stringResource(R.string.favorites),
+                        style = typography.m.semiBold,
+                        modifier = sectionTextModifier
+                    )
+                }
 
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = Dimensions.items.horizontalPadding),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(
-                                items = favoriteStations,
-                                key = { "fav_${it.id}" }
-                            ) { station ->
-                                val isThisStationPlaying = currentMediaId == "radio:${station.id}"
-                                RadioFavoriteChip(
-                                    station = station,
-                                    isPlaying = isThisStationPlaying && isPlaying,
-                                    isLoading = pendingStationId == station.id && binder?.isLoadingRadio == true,
-                                    onClick = {
-                                        pendingStationId = station.id
-                                        binder?.playRadio(station)
-                                    }
-                                )
-                            }
+                item(key = "favorites_row") {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = Dimensions.items.horizontalPadding),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(
+                            items = favoriteStations,
+                            key = { "fav_${it.id}" },
+                            contentType = { "radio_favorite" }
+                        ) { station ->
+                            val isThisStationPlaying = currentMediaId == "radio:${station.id}"
+                            RadioFavoriteCard(
+                                station = station,
+                                isPlaying = isThisStationPlaying && isPlaying,
+                                isLoading = pendingStationId == station.id && binder?.isLoadingRadio == true,
+                                onClick = { togglePlay(station, isThisStationPlaying) }
+                            )
                         }
                     }
                 }
             }
 
-            // Section Subheader: Clean "Stations" header with channel count on right
-            item(key = "section_subheader") {
+            item(key = "stations_title") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = Dimensions.items.horizontalPadding, vertical = 8.dp),
+                        .then(sectionTextModifier),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     BasicText(
-                        text = "Stations",
-                        style = typography.xs.semiBold.copy(color = colorPalette.text),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        text = stringResource(R.string.radio_stations),
+                        style = typography.m.semiBold
                     )
-
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
-                            color = colorPalette.accent,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
+                    if (!isLoading) {
                         BasicText(
-                            text = "${displayedStations.size} stations",
-                            style = typography.xxs.secondary.copy(color = colorPalette.textSecondary)
+                            text = stringResource(R.string.radio_stations_count, displayedStations.size),
+                            style = typography.xxs.secondary
                         )
                     }
                 }
             }
 
-            // Station List (Clean SongItem-style rows)
-            if (displayedStations.isEmpty() && !isLoading) {
+            if (isLoading && displayedStations.isEmpty()) {
+                item(key = "stations_shimmer") {
+                    ShimmerHost {
+                        repeat(6) {
+                            SongItemPlaceholder(thumbnailSize = Dimensions.thumbnails.song)
+                        }
+                    }
+                }
+            } else if (displayedStations.isEmpty()) {
                 item(key = "empty_state") {
                     Box(
                         modifier = Modifier
@@ -288,8 +303,8 @@ fun RadioScreen() {
                         contentAlignment = Alignment.Center
                     ) {
                         BasicText(
-                            text = "No stations available for $selectedFilter",
-                            style = typography.xs.secondary.copy(color = colorPalette.textSecondary)
+                            text = stringResource(R.string.radio_empty_for_region, selectedFilter),
+                            style = typography.xs.secondary.center
                         )
                     }
                 }
@@ -300,17 +315,12 @@ fun RadioScreen() {
                     contentType = { "radio_station" }
                 ) { station ->
                     val isThisStationPlaying = currentMediaId == "radio:${station.id}"
-                    val fav = isFavorite(station)
-
                     RadioStationRow(
                         station = station,
                         isPlaying = isThisStationPlaying && isPlaying,
                         isLoading = pendingStationId == station.id && binder?.isLoadingRadio == true,
-                        isFavorite = fav,
-                        onPlayClick = {
-                            pendingStationId = station.id
-                            binder?.playRadio(station)
-                        },
+                        isFavorite = isFavorite(station),
+                        onTogglePlay = { togglePlay(station, isThisStationPlaying) },
                         onFavoriteClick = { toggleFavorite(station) }
                     )
                 }
@@ -320,8 +330,237 @@ fun RadioScreen() {
 }
 
 /**
- * Filter Bottom Sheet Menu: Clean, grouped selection for Indian places and World countries.
- * Zero emojis, sleek minimal typography.
+ * Station artwork shared by cards and rows: cached logo, tinted fallback
+ * icon, and the playing/loading overlay. Single choke point so both stay
+ * identical.
+ */
+@Composable
+private fun RadioStationArtwork(
+    station: RadioStation,
+    size: Dp,
+    isPlaying: Boolean,
+    isLoading: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val (colorPalette, _) = LocalAppearance.current
+    val context = LocalContext.current
+
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(LocalAppearance.current.thumbnailShape)
+            .background(colorPalette.background1),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!station.logoUrl.isNullOrBlank()) {
+            val imageRequest = remember<ImageRequest>(station.logoUrl) {
+                ImageRequest.Builder(context)
+                    .data(station.logoUrl)
+                    .memoryCacheKey("radio_logo_${station.id}")
+                    .diskCacheKey("radio_logo_${station.id}")
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .crossfade(false)
+                    .build()
+            }
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = station.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Image(
+                painter = painterResource(R.drawable.radio),
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(colorPalette.accent),
+                modifier = Modifier.size(size * 0.45f)
+            )
+        }
+
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(size * 0.35f)
+                )
+            }
+        } else if (isPlaying) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
+            ) {
+                MusicBars(
+                    color = Color.White,
+                    modifier = Modifier.size(size * 0.35f)
+                )
+            }
+        }
+    }
+}
+
+private fun stationDetails(station: RadioStation): String {
+    val details = buildString {
+        if (station.city.isNotBlank()) append(station.city)
+        if (station.frequency.isNotBlank()) {
+            if (isNotEmpty()) append(" • ")
+            append(station.frequency)
+        } else if ((station.bitrate ?: 0) > 0) {
+            if (isNotEmpty()) append(" • ")
+            append("${station.bitrate} kbps")
+        }
+        if (station.language.isNotBlank() && station.language != "Various") {
+            if (isNotEmpty()) append(" • ")
+            append(station.language)
+        }
+    }
+    return details.ifBlank { station.country }
+}
+
+/**
+ * Favorite station card: album-card layout (artwork with name below), tap to
+ * play/pause. Mirrors the app's horizontal card shelves.
+ */
+@Composable
+private fun RadioFavoriteCard(
+    station: RadioStation,
+    isPlaying: Boolean,
+    isLoading: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val (colorPalette, typography) = LocalAppearance.current
+    val artSize = Dimensions.thumbnails.artist
+
+    ItemContainer(
+        alternative = true,
+        thumbnailSize = artSize,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.clickable(onClick = onClick)
+    ) {
+        RadioStationArtwork(
+            station = station,
+            size = artSize,
+            isPlaying = isPlaying,
+            isLoading = isLoading
+        )
+
+        ItemInfoContainer(horizontalAlignment = Alignment.CenterHorizontally) {
+            BasicText(
+                text = station.name,
+                style = typography.xs.semiBold.center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            BasicText(
+                text = stationDetails(station),
+                style = typography.xxs.secondary.center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        if (isPlaying) {
+            BasicText(
+                text = stringResource(R.string.now_playing).lowercase(),
+                style = typography.xxs.medium.center.copy(color = colorPalette.accent),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * Station row mirroring SongItem: same container, type scale, trailing heart
+ * and playing highlight. Tap toggles playback for the active station so a
+ * replay never restarts the stream by accident.
+ */
+@Composable
+private fun RadioStationRow(
+    station: RadioStation,
+    isPlaying: Boolean,
+    isLoading: Boolean,
+    isFavorite: Boolean,
+    onTogglePlay: () -> Unit,
+    onFavoriteClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val (colorPalette, typography) = LocalAppearance.current
+
+    val backgroundColor by animateColorAsState(
+        targetValue = if (isPlaying) colorPalette.background2 else Color.Transparent,
+        label = ""
+    )
+
+    ItemContainer(
+        alternative = false,
+        thumbnailSize = Dimensions.thumbnails.song,
+        modifier = modifier
+            .background(backgroundColor)
+            .clip(LocalAppearance.current.thumbnailShape)
+            .clickable(onClick = onTogglePlay)
+    ) {
+        RadioStationArtwork(
+            station = station,
+            size = Dimensions.thumbnails.song,
+            isPlaying = isPlaying,
+            isLoading = isLoading
+        )
+
+        ItemInfoContainer {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                BasicText(
+                    text = station.name,
+                    style = typography.xs.semiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onFavoriteClick
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(if (isFavorite) R.drawable.heart else R.drawable.heart_outline),
+                        contentDescription = if (isFavorite) "Unfavorite" else "Favorite",
+                        colorFilter = ColorFilter.tint(if (isFavorite) colorPalette.accent else colorPalette.textSecondary),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            BasicText(
+                text = stationDetails(station),
+                style = typography.xs.semiBold.secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * Filter Bottom Sheet Menu: grouped selection for Indian places and World
+ * countries.
  */
 @Composable
 private fun RadioFilterMenu(
@@ -341,13 +580,16 @@ private fun RadioFilterMenu(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             BasicText(
-                text = "Select Region",
+                text = stringResource(R.string.select_region),
                 style = typography.m.semiBold.copy(color = colorPalette.text),
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
             SegmentedControl(
-                segments = listOf("India", "World"),
+                segments = listOf(
+                    stringResource(R.string.region_india),
+                    stringResource(R.string.region_world)
+                ),
                 selectedSegment = selectedCategoryIndex,
                 onSegmentSelected = { selectedCategoryIndex = it },
                 modifier = Modifier.padding(bottom = 12.dp)
@@ -368,7 +610,9 @@ private fun RadioFilterMenu(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         BasicText(
-                            text = if (place == "Maharashtra") "Maharashtra (Default)" else place,
+                            text = if (place == "Maharashtra") {
+                                stringResource(R.string.radio_default_place, place)
+                            } else place,
                             style = (if (isSelected) typography.xs.semiBold else typography.xs.medium)
                                 .copy(color = if (isSelected) colorPalette.accent else colorPalette.text)
                         )
@@ -415,261 +659,3 @@ private fun RadioFilterMenu(
         }
     }
 }
-
-/**
- * Compact Favorite Chip for the top horizontal shelf with thumbnail & placeholder.
- */
-@Composable
-private fun RadioFavoriteChip(
-    station: RadioStation,
-    isPlaying: Boolean,
-    isLoading: Boolean,
-    onClick: () -> Unit
-) {
-    val (colorPalette, typography, _, thumbnailShape) = LocalAppearance.current
-    val context = LocalContext.current
-
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(colorPalette.background1)
-            .clickable(onClick = onClick)
-            .padding(start = 6.dp, top = 6.dp, bottom = 6.dp, end = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Thumbnail with fallback placeholder
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(thumbnailShape)
-                .background(colorPalette.background0),
-            contentAlignment = Alignment.Center
-        ) {
-            if (!station.logoUrl.isNullOrBlank()) {
-                val imageRequest = remember<ImageRequest>(station.logoUrl) {
-                    ImageRequest.Builder(context)
-                        .data(station.logoUrl)
-                        .memoryCacheKey("radio_logo_${station.id}")
-                        .diskCacheKey("radio_logo_${station.id}")
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .crossfade(false)
-                        .build()
-                }
-                AsyncImage(
-                    model = imageRequest,
-                    contentDescription = station.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Image(
-                    painter = painterResource(R.drawable.radio),
-                    contentDescription = null,
-                    colorFilter = ColorFilter.tint(colorPalette.accent),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            if (isPlaying) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MusicBars(
-                        color = Color.White,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.width(10.dp))
-
-        Column {
-            BasicText(
-                text = station.name,
-                style = typography.xs.semiBold.copy(color = colorPalette.text),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            val subText = if (station.frequency.isNotBlank()) "${station.city} • ${station.frequency}" else station.city
-            BasicText(
-                text = subText.ifBlank { station.country },
-                style = typography.xxs.secondary.copy(color = colorPalette.textSecondary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-/**
- * Clean, lightweight station row matching the rest of ViMusic's song item layout.
- * Displays cached artwork or fallback placeholder.
- */
-@Composable
-private fun RadioStationRow(
-    station: RadioStation,
-    isPlaying: Boolean,
-    isLoading: Boolean,
-    isFavorite: Boolean,
-    onPlayClick: () -> Unit,
-    onFavoriteClick: () -> Unit
-) {
-    val (colorPalette, typography, _, thumbnailShape) = LocalAppearance.current
-    val context = LocalContext.current
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onPlayClick)
-            .padding(
-                horizontal = Dimensions.items.horizontalPadding,
-                vertical = Dimensions.items.verticalPadding
-            ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Station Logo / Tinted Placeholder Radio Icon (48.dp clean rounded square)
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(thumbnailShape)
-                .background(colorPalette.background1),
-            contentAlignment = Alignment.Center
-        ) {
-            if (!station.logoUrl.isNullOrBlank()) {
-                val imageRequest = remember<ImageRequest>(station.logoUrl) {
-                    ImageRequest.Builder(context)
-                        .data(station.logoUrl)
-                        .memoryCacheKey("radio_logo_${station.id}")
-                        .diskCacheKey("radio_logo_${station.id}")
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .crossfade(false)
-                        .build()
-                }
-                AsyncImage(
-                    model = imageRequest,
-                    contentDescription = station.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Image(
-                    painter = painterResource(R.drawable.radio),
-                    contentDescription = null,
-                    colorFilter = ColorFilter.tint(colorPalette.accent),
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-
-            if (isPlaying) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MusicBars(
-                        color = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        // Station Details
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            BasicText(
-                text = station.name,
-                style = typography.xs.semiBold.copy(color = colorPalette.text),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Spacer(modifier = Modifier.height(3.dp))
-
-            val details = buildString {
-                if (station.city.isNotBlank()) append(station.city)
-                if (station.frequency.isNotBlank()) {
-                    if (isNotEmpty()) append(" • ")
-                    append(station.frequency)
-                } else if ((station.bitrate ?: 0) > 0) {
-                    if (isNotEmpty()) append(" • ")
-                    append("${station.bitrate} kbps")
-                }
-                if (station.language.isNotBlank() && station.language != "Various") {
-                    if (isNotEmpty()) append(" • ")
-                    append(station.language)
-                }
-            }
-
-            BasicText(
-                text = details.ifBlank { station.country },
-                style = typography.xxs.secondary.copy(color = colorPalette.textSecondary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        // Action: Favorite Heart Button
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onFavoriteClick
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Image(
-                painter = painterResource(if (isFavorite) R.drawable.heart else R.drawable.heart_outline),
-                contentDescription = if (isFavorite) "Unfavorite" else "Favorite",
-                colorFilter = ColorFilter.tint(if (isFavorite) colorPalette.accent else colorPalette.textSecondary),
-                modifier = Modifier.size(20.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.width(4.dp))
-
-        // Action: Play Indicator / Button
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onPlayClick
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(
-                    color = colorPalette.accent,
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(16.dp)
-                )
-            } else if (isPlaying) {
-                MusicBars(
-                    color = colorPalette.accent,
-                    modifier = Modifier.size(18.dp)
-                )
-            } else {
-                Image(
-                    painter = painterResource(R.drawable.play),
-                    contentDescription = "Play",
-                    colorFilter = ColorFilter.tint(colorPalette.textSecondary),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-        }
-        }
-    }

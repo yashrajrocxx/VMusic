@@ -52,5 +52,5 @@ fun Innertube.SongItem.Companion.from(renderer: MusicResponsiveListItemRenderer)
             ?.musicThumbnailRenderer
             ?.thumbnail
             ?.thumbnails
-            ?.firstOrNull()
+            ?.lastOrNull()
     ).takeIf { it.info?.endpoint?.videoId != null }

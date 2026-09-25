@@ -45,7 +45,6 @@ import app.pulse.android.DatabaseInitializer.From8To9Migration
 import app.pulse.android.models.Album
 import app.pulse.android.models.Artist
 import app.pulse.android.models.Event
-import app.pulse.android.models.EventWithSong
 import app.pulse.android.models.Format
 import app.pulse.android.models.Info
 import app.pulse.android.models.Lyrics
@@ -698,9 +697,24 @@ interface DatabaseAccessor {
         period: Long
     ): Flow<List<SongModel>>
 
+    /**
+     * Most recent playable songs (events joined with their Song row).
+     * Bounded so the home Quick Picks takes O(limit) memory instead of
+     * materializing the entire listening history on every emission.
+     * Songs without a Song row (radio/local/cleared) are excluded by the JOIN.
+     */
     @Transaction
-    @Query("SELECT * FROM Event ORDER BY timestamp DESC")
-    fun events(): Flow<List<EventWithSong>>
+    @Query(
+        """
+        SELECT Song.* FROM Event
+        JOIN Song ON Song.id = songId
+        WHERE Song.id NOT LIKE '$LOCAL_KEY_PREFIX%'
+        ORDER BY Event.timestamp DESC
+        LIMIT :limit
+        """
+    )
+    @RewriteQueriesToDropUnusedColumns
+    fun latestEvents(limit: Int = 4): Flow<List<SongModel>>
 
     @Query("SELECT COUNT (*) FROM Event")
     fun eventsCount(): Flow<Int>

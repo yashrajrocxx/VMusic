@@ -80,7 +80,7 @@ internal object ShazamSignatureGenerator {
         // Accumulated samples count (for signature header)
         private var numSamples = 0
 
-        // Band → list of peaks (bands 0..3)
+        // Band -> list of peaks (bands 0..3)
         private val bandPeaks = Array(4) { mutableListOf<FrequencyPeak>() }
         private var totalPeaks = 0
 
@@ -109,7 +109,7 @@ internal object ShazamSignatureGenerator {
         }
 
         private fun doFFT() {
-            // Build windowed excerpt from ring buffer (oldest → newest)
+            // Build windowed excerpt from ring buffer (oldest -> newest)
             val windowed = DoubleArray(FFT_SIZE) { i ->
                 samplesRing[(samplesPos + i) % FFT_SIZE].toDouble() * HANNING[i]
             }

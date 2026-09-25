@@ -72,7 +72,6 @@ import app.pulse.android.utils.asMediaItem
 import app.pulse.android.utils.DisposableListener
 import app.pulse.android.utils.forceSeekToNext
 import app.pulse.android.utils.forceSeekToPrevious
-import app.pulse.android.utils.positionAndDurationState
 import app.pulse.android.utils.rememberIsBuffering
 import app.pulse.android.utils.seamlessPlay
 import app.pulse.android.utils.secondary
@@ -130,10 +129,16 @@ fun rememberMiniPlayerState(): MiniPlayerState {
     val activeMediaItem = if (userCleared) null else mediaItem
     val metadata = activeMediaItem?.toUiMedia(duration)
 
-    val onClearAll: () -> Unit = {
-        userCleared = true
-        binder?.stopRadio()
-        binder?.player?.clearMediaItems()
+    // Stable reference: without remember, this lambda is a new unstable instance
+    // on every recomposition, defeating the remember below and rebuilding the
+    // mini-player state (and its consumers) far more often than needed —
+    // including on every dock drag frame.
+    val onClearAll: () -> Unit = remember(binder) {
+        {
+            userCleared = true
+            binder?.stopRadio()
+            binder?.player?.clearMediaItems()
+        }
     }
 
     return remember(activeMediaItem, metadata, shouldBePlaying, isBuffering, binder, mediaItem, userCleared) {

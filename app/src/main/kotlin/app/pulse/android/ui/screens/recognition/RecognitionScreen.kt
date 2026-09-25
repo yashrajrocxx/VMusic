@@ -447,7 +447,7 @@ private fun ResultCard(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Action buttons row: [♥ Like] [☰+ Playlist] [▶ Play Now] [↗ Share]
+        // Action buttons row: [Like] [Add to Playlist] [Play Now] [Share]
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,

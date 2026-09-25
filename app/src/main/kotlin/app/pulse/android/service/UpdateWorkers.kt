@@ -92,15 +92,8 @@ class VersionCheckWorker(
             )
         }
 
-        fun upsert(context: Context, period: Duration?) = runCatching {
-            val workManager = WorkManager.getInstance(context)
-
-            if (period == null) {
-                workManager.cancelAllWorkByTag(WORK_TAG)
-                return@runCatching
-            }
-
-            val request = PeriodicWorkRequestBuilder<VersionCheckWorker>(period.toJavaDuration())
+        private fun periodicRequest(period: Duration) =
+            PeriodicWorkRequestBuilder<VersionCheckWorker>(period.toJavaDuration())
                 .addTag(WORK_TAG)
                 .setConstraints(
                     Constraints(
@@ -110,10 +103,38 @@ class VersionCheckWorker(
                 )
                 .build()
 
+        /**
+         * Ensures the periodic check is scheduled without disturbing an existing
+         * schedule, so restarts never reset the interval (checked once per period).
+         */
+        fun schedule(context: Context, period: Duration?) = runCatching {
+            val workManager = WorkManager.getInstance(context)
+
+            if (period == null) {
+                workManager.cancelAllWorkByTag(WORK_TAG)
+                return@runCatching
+            }
+
+            workManager.enqueueUniquePeriodicWork(
+                /* uniqueWorkName = */ WORK_TAG,
+                /* existingPeriodicWorkPolicy = */ ExistingPeriodicWorkPolicy.KEEP,
+                /* periodicWork = */ periodicRequest(period)
+            )
+        }.onFailure { it.printStackTrace() }
+
+        /** Reschedules from scratch; used when the user explicitly changes the period. */
+        fun upsert(context: Context, period: Duration?) = runCatching {
+            val workManager = WorkManager.getInstance(context)
+
+            if (period == null) {
+                workManager.cancelAllWorkByTag(WORK_TAG)
+                return@runCatching
+            }
+
             workManager.enqueueUniquePeriodicWork(
                 /* uniqueWorkName = */ WORK_TAG,
                 /* existingPeriodicWorkPolicy = */ ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE,
-                /* periodicWork = */ request
+                /* periodicWork = */ periodicRequest(period)
             )
         }.onFailure { it.printStackTrace() }
     }

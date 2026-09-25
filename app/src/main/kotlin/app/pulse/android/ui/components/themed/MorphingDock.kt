@@ -52,13 +52,15 @@ fun MorphingDock(
     BoxWithConstraints(
         modifier = modifier
             .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        colorPalette.background0.copy(alpha = 0.8f),
-                        colorPalette.background0
+                brush = remember(colorPalette.background0) {
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            colorPalette.background0.copy(alpha = 0.8f),
+                            colorPalette.background0
+                        )
                     )
-                )
+                }
             )
             .safeDrawingPadding()
             .padding(horizontal = dockPad, vertical = dockPad)

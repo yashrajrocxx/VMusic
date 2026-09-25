@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -19,18 +20,23 @@ fun ShimmerHost(
     horizontalAlignment: Alignment.Horizontal = Alignment.Start,
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     content: @Composable ColumnScope.() -> Unit
-) = Column(
-    horizontalAlignment = horizontalAlignment,
-    verticalArrangement = verticalArrangement,
-    modifier = modifier
-        .shimmer()
-        .graphicsLayer(alpha = 0.99f)
-        .drawWithContent {
-            drawContent()
-            drawRect(
-                brush = Brush.verticalGradient(listOf(Color.Black, Color.Transparent)),
-                blendMode = BlendMode.DstIn
-            )
-        },
-    content = content
-)
+): Unit {
+    // Hoisted out of the draw block: rebuilding the gradient shader every
+    // shimmer frame is pure GC/render-thread churn for a static brush.
+    val fadeBrush = remember { Brush.verticalGradient(listOf(Color.Black, Color.Transparent)) }
+    Column(
+        horizontalAlignment = horizontalAlignment,
+        verticalArrangement = verticalArrangement,
+        modifier = modifier
+            .shimmer()
+            .graphicsLayer(alpha = 0.99f)
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    brush = fadeBrush,
+                    blendMode = BlendMode.DstIn
+                )
+            },
+        content = content
+    )
+}

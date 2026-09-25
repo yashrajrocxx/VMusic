@@ -16,9 +16,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,7 +43,6 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.painterResource
@@ -50,6 +52,7 @@ import androidx.media3.common.C
 import app.pulse.android.Database
 import app.pulse.android.LocalPlayerServiceBinder
 import app.pulse.android.R
+import app.pulse.android.preferences.AccountPreferences
 import app.pulse.android.preferences.PlayerPreferences
 import app.pulse.android.service.LoginRequiredException
 import app.pulse.android.service.PlayableFormatNotFoundException
@@ -58,10 +61,12 @@ import app.pulse.android.service.UnplayableException
 import app.pulse.android.service.VideoIdMismatchException
 import app.pulse.android.service.isLocal
 import app.pulse.android.ui.modifiers.onSwipe
+import app.pulse.android.ui.screens.loginRoute
 import app.pulse.android.utils.forceSeekToNext
 import app.pulse.android.utils.forceSeekToPrevious
 import app.pulse.android.utils.isInPip
 import app.pulse.android.utils.thumbnail
+import app.pulse.android.utils.videoThumbnailHd
 import app.pulse.android.utils.windowState
 import app.pulse.core.ui.Dimensions
 import app.pulse.core.ui.LocalAppearance
@@ -71,6 +76,7 @@ import kotlinx.coroutines.launch
 import java.net.UnknownHostException
 import java.nio.channels.UnresolvedAddressException
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Thumbnail(
     isShowingLyrics: Boolean,
@@ -150,11 +156,11 @@ fun Thumbnail(
             animationSpec = spring(dampingRatio = 0.9f, stiffness = 500f),
             label = ""
         )
-        val blurRadius by animateDpAsState(
-            targetValue = if (isShowingLyrics || error != null || isShowingStatsForNerds) 8.dp else 0.dp,
-            animationSpec = spring(dampingRatio = 0.9f, stiffness = 400f),
-            label = ""
-        )
+        // Static blur cut instead of an animated radius: animating it re-renders
+        // a full-image blur every frame of the spring (heavy on low-end GPUs),
+        // while the overlay opening covers the transition anyway.
+        val blurRadius =
+            if (isShowingLyrics || error != null || isShowingStatsForNerds) 8.dp else 0.dp
 
         if (currentWindow != null) Box(
             modifier = Modifier
@@ -167,10 +173,20 @@ fun Thumbnail(
                 )
         ) {
             var height by remember { mutableIntStateOf(0) }
+            // Request the full display width (1:1, capped by maxThumbnailSize):
+            // asking for less upscales on display and looks soft fullscreen.
             val artwork = currentWindow.mediaItem.mediaMetadata.artworkUri
-                ?.thumbnail((Dimensions.thumbnails.player.song - 64.dp).px)
+                ?.toString()?.videoThumbnailHd()
+                ?.thumbnail(Dimensions.thumbnails.player.song.px)
 
             if (artwork != null) {
+                // Current callbacks: this gesture node never restarts, so it
+                // must read through holders (track changes would like the
+                // wrong song after a skip).
+                val currentLikedAt by rememberUpdatedState(likedAt)
+                val currentSetLikedAt by rememberUpdatedState(setLikedAt)
+                val currentOnShowLyrics by rememberUpdatedState(onShowLyrics)
+                val currentOnShowStats by rememberUpdatedState(onShowStatsForNerds)
                 AsyncImage(
                     model = artwork,
                     placeholder = painterResource(id = R.mipmap.ic_launcher_foreground),
@@ -178,24 +194,37 @@ fun Thumbnail(
                     contentDescription = null,
                     contentScale = contentScale,
                     modifier = Modifier
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = { onShowLyrics(true) },
-                                onLongPress = { onShowStatsForNerds(true) },
-                                onDoubleTap = {
-                                    if (likedAt == null) setLikedAt(System.currentTimeMillis())
-
-                                    coroutineScope.launch {
-                                        val spec = spring<Float>(
-                                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                                            stiffness = Spring.StiffnessMedium
-                                        )
-                                        transitionState.animateTo(true, spec)
-                                        transitionState.animateTo(false, spec)
-                                    }
+                        .combinedClickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { currentOnShowLyrics(true) },
+                            onLongClick = { currentOnShowStats(true) },
+                            onDoubleClick = {
+                                // Like-only (never unlikes: an already-liked
+                                // song just replays the burst below).
+                                if (currentLikedAt == null) {
+                                    currentSetLikedAt(System.currentTimeMillis())
                                 }
-                            )
-                        }
+
+                                coroutineScope.launch {
+                                    transitionState.animateTo(
+                                        true,
+                                        spring(
+                                            dampingRatio = Spring.DampingRatioLowBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        )
+                                    )
+                                    kotlinx.coroutines.delay(350)
+                                    transitionState.animateTo(
+                                        false,
+                                        spring(
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        )
+                                    )
+                                }
+                            }
+                        )
                         .align(Alignment.Center)
                         .fillMaxWidth()
                         .background(colorPalette.background0)
@@ -235,7 +264,7 @@ fun Thumbnail(
                 contentDescription = null,
                 colorFilter = ColorFilter.tint(colorPalette.accent),
                 modifier = Modifier
-                    .fillMaxSize(0.5f)
+                    .fillMaxSize(0.62f)
                     .aspectRatio(1f)
                     .align(Alignment.Center)
                     .graphicsLayer(
@@ -256,7 +285,10 @@ fun Thumbnail(
 
                         is PlayableFormatNotFoundException -> stringResource(R.string.error_unplayable)
                         is UnplayableException -> stringResource(R.string.error_source_deleted)
-                        is LoginRequiredException, is RestrictedVideoException ->
+                        is LoginRequiredException ->
+                            if (AccountPreferences.isLoggedIn) stringResource(R.string.error_login_expired)
+                            else stringResource(R.string.error_login_required)
+                        is RestrictedVideoException ->
                             stringResource(R.string.error_server_restrictions)
 
                         is VideoIdMismatchException -> stringResource(R.string.error_id_mismatch)
@@ -264,6 +296,8 @@ fun Thumbnail(
                     }
                 },
                 onDismiss = { binder?.player?.prepare() },
+                actionLabel = if (error?.cause?.cause is LoginRequiredException) stringResource(R.string.login_with_google) else null,
+                onAction = if (error?.cause?.cause is LoginRequiredException) ({ loginRoute.global() }) else null,
                 modifier = Modifier.height(height.px.dp)
             )
         }

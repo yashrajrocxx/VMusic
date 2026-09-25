@@ -22,6 +22,10 @@ import com.metrolist.innertubex.extraction.YtConfigParserImpl
 import com.metrolist.innertubex.extraction.generateClientPlaybackNonce
 import com.metrolist.innertubex.extraction.strategy.PoTokenProviderKind
 import app.pulse.android.preferences.AccountPreferences
+import app.pulse.android.service.LoginRequiredException
+import app.pulse.android.service.RestrictedVideoException
+import app.pulse.providers.innertube.Innertube
+import app.pulse.providers.innertube.requests.playerPlayabilityStatus
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -91,12 +95,34 @@ object InnerTubeXPlayer {
                 if (error.reason == StreamResolveException.Reason.NETWORK && cause != null) {
                     cause
                 } else {
-                    error
+                    classifyStreamFailure(videoId, error) ?: error
                 },
             )
         } catch (error: Exception) {
             Result.failure(error)
         }
+
+    /**
+     * Maps ambiguous extractor failures to typed playback exceptions using the true
+     * YouTube playability status (single cheap probe, failure path only). This is what
+     * surfaces "log in with Google" exactly when authentication — not the video — is
+     * the blocker; everything else keeps the previous generic failure.
+     */
+    private suspend fun classifyStreamFailure(
+        videoId: String,
+        error: StreamResolveException,
+    ): Exception? {
+        if (error.reason != StreamResolveException.Reason.UNAVAILABLE &&
+            error.reason != StreamResolveException.Reason.UNKNOWN &&
+            error.reason != StreamResolveException.Reason.NO_PLAYABLE_STREAM &&
+            error.reason != StreamResolveException.Reason.AGE_RESTRICTED
+        ) return null
+        return when (Innertube.playerPlayabilityStatus(videoId)?.uppercase()) {
+            "LOGIN_REQUIRED" -> LoginRequiredException(error)
+            "UNPLAYABLE" -> RestrictedVideoException(error)
+            else -> null
+        }
+    }
 
     fun markStreamClientFailed(
         videoId: String,

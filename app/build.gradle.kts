@@ -22,7 +22,7 @@ android {
         minSdk = 24
         targetSdk = 36
 
-        versionCode = System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull() ?: 1
+        versionCode = System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull() ?: 2
         versionName = project.version.toString()
 
         multiDexEnabled = true
@@ -114,7 +114,7 @@ android {
 
     // ABI splits: only ship arm64-v8a + armeabi-v7a in the debug APK.
     // x86 / x86_64 are emulator ABIs that inflate the APK by ~3× on real phones.
-    // This drops the debug APK from ~97 MB → ~30 MB with zero runtime impact
+    // This drops the debug APK from ~97 MB -> ~30 MB with zero runtime impact
     // on OnePlus / Redmi / any real ARM device.
     splits {
         abi {

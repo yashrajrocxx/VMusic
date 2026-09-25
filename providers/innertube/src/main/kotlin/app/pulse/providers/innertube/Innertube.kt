@@ -326,7 +326,10 @@ object Innertube {
         val songs: List<SongItem>? = null,
         val playlists: List<PlaylistItem>? = null,
         val albums: List<AlbumItem>? = null,
-        val artists: List<ArtistItem>? = null
+        val artists: List<ArtistItem>? = null,
+        // Fresh-install categories (Hindi/Indie/Unplugged moods). Backward
+        // compatible: older cached pages decode with null.
+        val moods: List<Mood.Item>? = null
     )
 
     @Serializable

@@ -14,6 +14,7 @@ import android.provider.MediaStore.Audio.Media.ARTIST
 import android.provider.MediaStore.Audio.Media.DISPLAY_NAME
 import android.provider.MediaStore.Audio.Media.DURATION
 import android.provider.MediaStore.Audio.Media.IS_MUSIC
+import android.provider.MediaStore.Audio.Media.RELATIVE_PATH
 import android.provider.MediaStore.Audio.Media._ID
 import androidx.core.net.toUri
 import app.pulse.core.ui.utils.isAtLeastAndroid10
@@ -154,6 +155,14 @@ class AudioMediaCursor(private val cursor: Cursor) {
     val duration by int(DURATION)
     val artist by string(ARTIST)
     private val albumId by long(ALBUM_ID)
+
+    /**
+     * Storage location for folder filtering: RELATIVE_PATH (e.g. "Music/")
+     * on Android 10+, legacy file path below. The "_data" literal avoids the
+     * deprecated DATA constant (no deprecation warning, same column).
+     */
+    val audioPath by if (isAtLeastAndroid10) nullableString(RELATIVE_PATH)
+    else nullableString("_data")
 
     val albumUri get() = ContentUris.withAppendedId(ALBUM_URI_BASE, albumId)
 }

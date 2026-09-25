@@ -8,8 +8,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,7 +38,9 @@ fun PlaybackError(
     isDisplayed: Boolean,
     messageProvider: @Composable () -> String,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null
 ) = Box(modifier = modifier) {
     val (colorPalette, typography) = LocalAppearance.current
     val message by rememberUpdatedState(newValue = messageProvider())
@@ -69,15 +73,29 @@ fun PlaybackError(
         label = "",
         modifier = Modifier.fillMaxWidth()
     ) { currentMessage ->
-        if (currentMessage != null) BasicText(
-            text = currentMessage,
-            style = typography.xs.center.medium.color(colorPalette.onOverlay),
+        if (currentMessage != null) Column(
             modifier = Modifier
                 .background(colorPalette.overlay.copy(alpha = 0.4f))
                 .padding(all = 8.dp)
-                .fillMaxWidth(),
-            maxLines = if (pip) 1 else Int.MAX_VALUE,
-            overflow = TextOverflow.Ellipsis
-        )
+                .fillMaxWidth()
+        ) {
+            BasicText(
+                text = currentMessage,
+                style = typography.xs.center.medium.color(colorPalette.onOverlay),
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = if (pip) 1 else Int.MAX_VALUE,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!pip && actionLabel != null && onAction != null) BasicText(
+                text = actionLabel,
+                style = typography.xs.center.medium.color(colorPalette.accent),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp)
+                    .clickable(onClick = onAction),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }

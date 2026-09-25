@@ -7,18 +7,27 @@ import android.content.IntentFilter
 import android.media.AudioManager
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SeekableTransitionState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.rememberTransition
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,6 +42,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -82,6 +92,8 @@ import app.pulse.android.models.ui.toUiMedia
 import app.pulse.android.preferences.PlayerPreferences
 import app.pulse.android.service.PlayerService
 import app.pulse.android.ui.components.SeekBar
+import app.pulse.android.utils.positionAndDurationState
+import app.pulse.android.utils.DisposableListener
 import app.pulse.android.utils.bold
 import app.pulse.android.utils.medium
 import app.pulse.android.utils.forceSeekToNext
@@ -90,6 +102,7 @@ import app.pulse.android.utils.semiBold
 import app.pulse.android.utils.shouldBePlaying
 import app.pulse.android.utils.rememberIsBuffering
 import app.pulse.android.utils.thumbnail
+import app.pulse.android.utils.videoThumbnailHd
 import app.pulse.core.ui.Dimensions
 import app.pulse.core.ui.LocalAppearance
 import app.pulse.core.ui.utils.px
@@ -110,13 +123,42 @@ import app.pulse.android.transaction
 import kotlinx.coroutines.flow.first
 import kotlin.math.roundToInt
 
+/**
+ * Progress bar with its own position polling. Scoping the 4 Hz tick here keeps
+ * the rest of the player screen (artwork, lyrics, queue, controls) from
+ * recomposing four times a second while a song plays.
+ */
+/**
+ * Progress bar with its own position polling. Scoping the 4 Hz tick here keeps
+ * the rest of the player screen (artwork, lyrics, queue, controls) from
+ * recomposing four times a second while a song plays.
+ */
+@Composable
+private fun LiveSeekBar(
+    binder: PlayerService.Binder,
+    media: UiMedia,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    val (position, _) = binder.player.positionAndDurationState()
+    Box(modifier = modifier.padding(horizontal = 48.dp)) {
+        SeekBar(
+            binder = binder,
+            position = position,
+            media = media,
+            alwaysShowDuration = true,
+            color = color,
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NewLayoutContent(
     mediaItem: MediaItem?,
     binder: PlayerService.Binder?,
     likedAt: Long?,
     setLikedAt: (Long?) -> Unit,
-    position: Long,
     duration: Long,
     onLyricsClick: () -> Unit,
     onQueueClick: () -> Unit,
@@ -132,7 +174,21 @@ fun NewLayoutContent(
     val (baseColorPalette, typography, thumbnailCornerSize) = LocalAppearance.current
     val context = LocalContext.current
     val player = binder?.player ?: return
-    val shouldBePlaying = player.shouldBePlaying
+    // Reactive play state: a plain snapshot read here goes stale on
+    // playWhenReady-only transitions (notification/dock toggles), freezing
+    // the icon and making taps call play() on an already-playing player.
+    var shouldBePlaying by remember(player) { mutableStateOf(player.shouldBePlaying) }
+    player.DisposableListener {
+        object : Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                shouldBePlaying = player.shouldBePlaying
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                shouldBePlaying = player.shouldBePlaying
+            }
+        }
+    }
     val isBuffering = player.rememberIsBuffering() ||
         (shouldBePlaying && player.playbackState != Player.STATE_READY)
     val metadata = remember(mediaItem) { mediaItem?.mediaMetadata }
@@ -141,7 +197,7 @@ fun NewLayoutContent(
         val thumbSize = with(context.resources.displayMetrics) {
             maxOf(widthPixels, heightPixels)
         }
-        mediaItem.mediaMetadata.artworkUri?.thumbnail(thumbSize)
+        mediaItem.mediaMetadata.artworkUri?.toString()?.videoThumbnailHd()?.thumbnail(thumbSize)
     }
     var localColorPalette by remember(mediaId) { mutableStateOf<ColorPalette?>(null) }
     val dynamicSource = AppearancePreferences.colorSource
@@ -269,15 +325,52 @@ fun NewLayoutContent(
         colorPalette.background0.copy(alpha = 0.95f)
     }
 
+    // Instagram-style like burst: dedicated transition replays fully on every
+    // double-tap (sequential animateTo calls always run to completion).
+    val likeScope = rememberCoroutineScope()
+    val burstState = remember { SeekableTransitionState(false) }
+    val burstTransition = rememberTransition(burstState)
+    val burstOpacity by burstTransition.animateFloat(label = "") { if (it) 1f else 0f }
+    val burstScale by burstTransition.animateFloat(
+        label = "",
+        transitionSpec = {
+            spring(dampingRatio = Spring.DampingRatioLowBouncy)
+        }
+    ) { if (it) 1f else 0f }
+
+    fun fireLikeBurst() {
+        // Like-only (never unlikes: an already-liked song just replays the
+        // burst, Instagram-style).
+        if (likedAt == null) setLikedAt(System.currentTimeMillis())
+        likeScope.launch {
+            burstState.animateTo(
+                true,
+                spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+            delay(350)
+            burstState.animateTo(
+                false,
+                spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+    }
+
 
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .clickable(
+            .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = {}
+                onClick = {},
+                onDoubleClick = { fireLikeBurst() }
             )
     ) {
         Box(
@@ -325,6 +418,26 @@ fun NewLayoutContent(
                         alpha = if (isShowingLyrics || isShowingQueue) 0.9f else 0f
                     }
                     .background(colorPalette.background0)
+            )
+
+            // Instagram-style like burst, centered on the artwork and lifted
+            // above the bottom controls so it never crowds the player.
+            // Scale springs from 0.5 (never a hard pop-in) with a low-bouncy
+            // finish; opacity fades in fast and out smoothly.
+            Image(
+                painter = painterResource(R.drawable.heart),
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(colorPalette.accent),
+                modifier = Modifier
+                    .fillMaxWidth(0.32f)
+                    .aspectRatio(1f)
+                    .align(Alignment.Center)
+                    .offset(y = (-48).dp)
+                    .graphicsLayer(
+                        scaleX = 0.5f + 0.5f * burstScale,
+                        scaleY = 0.5f + 0.5f * burstScale,
+                        alpha = burstOpacity
+                    )
             )
 
         }
@@ -432,10 +545,9 @@ fun NewLayoutContent(
                         )
                 }
 
-                // Hoisted above the AnimatedVisibility so the lyric scroll
-                // position survives close/reopen, otherwise the list resets
-                // to the top and the follow-effect visibly re-centers on every
-                // open (the vertical bounce).
+                // Hoisted above so the lyric scroll position survives
+                // close/reopen, otherwise the list resets to the top and the
+                // follow-effect visibly re-centers on every open.
                 val lyricsListState = rememberLazyListState()
                 val queueListState = rememberLazyListState()
                 var hasScrolledQueueToCurrent by remember { mutableStateOf(false) }
@@ -499,6 +611,16 @@ fun NewLayoutContent(
 
                         Spacer(modifier = Modifier.width(16.dp))
 
+                        // Smooth like-toggle pop: the heart scales up briefly
+                        // on like instead of snapping between drawables.
+                        val likePop by animateFloatAsState(
+                            targetValue = if (likedAt == null) 1f else 1.25f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "likePop"
+                        )
                         Image(
                             painter = if (likedAt == null) painterResource(R.drawable.heart_outline)
                             else painterResource(R.drawable.heart),
@@ -511,19 +633,19 @@ fun NewLayoutContent(
                                     )
                                 }
                                 .size(24.dp)
+                                .graphicsLayer(
+                                    scaleX = likePop,
+                                    scaleY = likePop
+                                )
                         )
                 }
 
                 if (uiMedia != null) {
-                    Box(modifier = Modifier.padding(horizontal = 48.dp)) {
-                        SeekBar(
-                            binder = binder,
-                            position = position,
-                            media = uiMedia,
-                            alwaysShowDuration = true,
-                            color = colorPalette.accent,
-                        )
-                    }
+                    LiveSeekBar(
+                        binder = binder,
+                        media = uiMedia,
+                        color = colorPalette.accent,
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -647,7 +769,8 @@ fun NewLayoutContent(
                         colorFilter = ColorFilter.tint(colorPalette.accent),
                         modifier = Modifier
                             .clickable(onClick = onMenuLaunch)
-                            .size(24.dp)
+                            .size(40.dp)
+                            .padding(8.dp)
                     )
                 }
             }

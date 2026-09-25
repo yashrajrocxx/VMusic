@@ -14,6 +14,32 @@ import io.ktor.util.generateNonce
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 
+private suspend fun Innertube.postPlayer(
+    body: PlayerBody,
+    context: Context
+): PlayerResponse? {
+    val cpn = generateNonce(16).decodeToString()
+    return runCatchingCancellable {
+        client.post(if (context.client.music) PLAYER_MUSIC else PLAYER) {
+            setBody(
+                body.copy(
+                    context = context,
+                    cpn = cpn
+                )
+            )
+
+            context.apply()
+
+            parameter("t", generateNonce(12))
+            header("X-Goog-Api-Format-Version", "2")
+            parameter("id", body.videoId)
+        }.body<PlayerResponse>().also { logger.info("Got $it") }
+    }?.getOrNull()?.copy(
+        cpn = cpn,
+        context = context
+    )
+}
+
 private suspend fun Innertube.tryContexts(
     body: PlayerBody,
     checkIsValid: Boolean,
@@ -30,31 +56,11 @@ private suspend fun Innertube.tryContexts(
         }
 
         logger.info("Trying ${context.client.clientName} ${context.client.clientVersion} ${context.client.platform}")
-        val cpn = generateNonce(16).decodeToString()
-        runCatchingCancellable {
-            client.post(if (context.client.music) PLAYER_MUSIC else PLAYER) {
-                setBody(
-                    body.copy(
-                        context = context,
-                        cpn = cpn
-                    )
-                )
-
-                context.apply()
-
-                parameter("t", generateNonce(12))
-                header("X-Goog-Api-Format-Version", "2")
-                parameter("id", body.videoId)
-            }.body<PlayerResponse>().also { logger.info("Got $it") }
-        }
-            ?.getOrNull()
+        postPlayer(body, context)
             ?.takeIf { checkIsValid && it.isValid }
             ?.let {
                 markStreamClientSuccessful(body.videoId, context.client.clientName)
-                return it.copy(
-                    cpn = cpn,
-                    context = context
-                )
+                return it
             }
     }
 
@@ -85,3 +91,18 @@ suspend fun Innertube.player(
         *playbackContexts.toTypedArray()
     )
 }
+
+/**
+ * Raw YouTube playability status for one cheap context (no validity filtering).
+ * Used on the stream-failure path only to tell "login required / restricted" apart
+ * from genuinely unplayable videos, so the player can offer Google login exactly
+ * when authentication — not the video — is the blocker.
+ */
+suspend fun Innertube.playerPlayabilityStatus(videoId: String): String? = runCatchingCancellable {
+    ensureVisitorData()
+    val rawContext = Context.DefaultWeb
+    val context = sessionVisitorData?.let { visitor ->
+        rawContext.copy(client = rawContext.client.copy(defaultVisitorData = visitor))
+    } ?: rawContext
+    postPlayer(PlayerBody(videoId = videoId), context)?.playabilityStatus?.status
+}?.getOrNull()

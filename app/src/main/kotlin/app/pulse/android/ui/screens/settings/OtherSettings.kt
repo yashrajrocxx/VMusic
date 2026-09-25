@@ -299,7 +299,10 @@ fun OtherSettings() {
                                             stopService(intent<PrecacheService>())
                                         }
                                         binder?.restartForegroundOrStop()
-                                        DatabaseDependency.reload()
+                                        // Room rebuild blocks: keep it off the main thread.
+                                        withContext(Dispatchers.IO) {
+                                            DatabaseDependency.reload()
+                                        }
                                         reloading = false
                                     }
                                 },

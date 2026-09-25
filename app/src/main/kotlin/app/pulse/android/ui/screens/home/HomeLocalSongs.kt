@@ -30,6 +30,7 @@ import app.pulse.android.Database
 import app.pulse.android.R
 import app.pulse.core.data.models.Song
 import app.pulse.core.data.models.toEntity
+import app.pulse.android.preferences.LocalPreferences
 import app.pulse.android.preferences.OrderPreferences
 import app.pulse.android.service.LOCAL_KEY_PREFIX
 import app.pulse.android.transaction
@@ -41,7 +42,6 @@ import app.pulse.android.utils.medium
 import app.pulse.core.ui.LocalAppearance
 import app.pulse.core.ui.utils.isAtLeastAndroid13
 import app.pulse.core.ui.utils.isCompositionLaunched
-import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -51,6 +51,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -71,13 +72,17 @@ fun HomeLocalSongs(onSearchClick: () -> Unit) = with(OrderPreferences) {
         mutableStateOf(context.applicationContext.hasPermission(permission))
     }
 
+    // Restart the scan when the folder allowlist changes: MediaStore version
+    // polling alone would never notice a settings change.
+    val musicFolders = LocalPreferences.musicFolders
+
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { hasPermission = it }
     )
 
-    LaunchedEffect(hasPermission) {
-        if (hasPermission) context.musicFilesAsFlow().collect()
+    LaunchedEffect(hasPermission, musicFolders) {
+        if (hasPermission) context.musicFilesAsFlow(this).collect()
     }
 
     if (hasPermission) HomeSongs(
@@ -122,8 +127,47 @@ fun HomeLocalSongs(onSearchClick: () -> Unit) = with(OrderPreferences) {
     }
 }
 
-private val mediaScope = CoroutineScope(Dispatchers.IO + CoroutineName("MediaStore worker"))
-fun Context.musicFilesAsFlow(): StateFlow<List<Song>> = flow {
+/**
+ * Tracks shorter than this are skipped: recorders and voice notes that slip
+ * through IS_MUSIC plus ringtones/notification blips. Real songs are
+ * virtually always longer; the folder rules below handle the long ones.
+ */
+private const val MIN_TRACK_DURATION_MS = 30_000
+
+/**
+ * Directory segments that mark system/non-music audio (call recordings,
+ * ringtones, alarms...). Matched per path segment so a song merely *named*
+ * "Record" is unaffected. An explicitly user-added folder always wins over
+ * these exclusions.
+ */
+private fun isSystemAudioDir(audioPath: String?): Boolean {
+    if (audioPath.isNullOrBlank()) return false
+    return audioPath.split('/').any { segment ->
+        val s = segment.trim().lowercase()
+        "record" in s || "callrecord" in s ||
+            s in setOf("ringtones", "ringtone", "notifications", "notification", "alarms", "alarm")
+    }
+}
+
+/**
+ * Whether a storage location falls inside one of the user-picked folders.
+ * Handles both RELATIVE_PATH dirs ("Music/") and legacy absolute file paths.
+ */
+private fun isInFolders(audioPath: String?, folders: Set<String>): Boolean {
+    if (audioPath.isNullOrBlank()) return false
+    return folders.any { folder ->
+        val f = folder.trim('/').lowercase()
+        if (f.isEmpty()) return@any false
+        if (audioPath.startsWith("/")) {
+            "/$f/" in audioPath.lowercase()
+        } else {
+            val dir = audioPath.trimEnd('/')
+            dir.equals(f, ignoreCase = true) || dir.startsWith("$f/", ignoreCase = true)
+        }
+    }
+}
+
+fun Context.musicFilesAsFlow(scope: CoroutineScope): StateFlow<List<Song>> = flow {
     var version: String? = null
 
     while (currentCoroutineContext().isActive) {
@@ -134,8 +178,15 @@ fun Context.musicFilesAsFlow(): StateFlow<List<Song>> = flow {
 
             AudioMediaCursor.query(contentResolver) {
                 buildList {
+                    // Read once per scan: snapshot the folder allowlist so a
+                    // mid-scan settings change can't half-apply.
+                    val folders = LocalPreferences.musicFolders
                     while (next()) {
-                        if (!isMusic || duration == 0) continue
+                        if (!isMusic || duration < MIN_TRACK_DURATION_MS) continue
+                        val path = audioPath
+                        if (folders.isNotEmpty()) {
+                            if (!isInFolders(path, folders)) continue
+                        } else if (isSystemAudioDir(path)) continue
                         add(
                             Song(
                                 id = "$LOCAL_KEY_PREFIX$id",
@@ -155,4 +206,9 @@ fun Context.musicFilesAsFlow(): StateFlow<List<Song>> = flow {
     }
 }.distinctUntilChanged()
     .onEach { songs -> transaction { songs.forEach { Database.insert(it.toEntity()) } } }
-    .stateIn(mediaScope, SharingStarted.Eagerly, listOf())
+    // Upstream stays on IO regardless of the sharing scope (the collector is
+    // Main): MediaStore query + DB inserts must never run on the UI thread.
+    .flowOn(Dispatchers.IO)
+    // Scoped sharing: polling stops a few seconds after the screen is left
+    // instead of running for the whole app lifetime on a static scope.
+    .stateIn(scope, SharingStarted.WhileSubscribed(5_000), listOf())

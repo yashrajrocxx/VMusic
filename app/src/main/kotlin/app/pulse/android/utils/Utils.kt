@@ -146,6 +146,23 @@ fun String?.thumbnail(
 
 fun Uri?.thumbnail(size: Int) = this?.toString()?.thumbnail(size)?.toUri()
 
+/**
+ * Best-available YouTube video still. Music-video artwork tops out at hq720
+ * (800px); the lower variants exist for every such video, so upgrading the
+ * request is safe and turns a fullscreen upscale-mush into a decent image.
+ * Non-YouTube URLs pass through untouched.
+ */
+fun String?.videoThumbnailHd(): String? {
+    if (this == null) return null
+    if (!contains("i.ytimg.com")) return this
+    return when {
+        contains("hqdefault.jpg") -> replace("hqdefault.jpg", "hq720.jpg")
+        contains("mqdefault.jpg") -> replace("mqdefault.jpg", "hq720.jpg")
+        contains("sddefault.jpg") -> replace("sddefault.jpg", "hq720.jpg")
+        else -> this
+    }
+}
+
 fun formatAsDuration(millis: Long) = DateUtils.formatElapsedTime(millis / 1000).removePrefix("0")
 
 @Suppress("LoopWithTooManyJumpStatements")

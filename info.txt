@@ -1,0 +1,47 @@
+# 1. Build the debug APK
+
+./gradlew :app:assembleDebug
+
+adb push app/build/outputs/apk/debug/app-arm64-v8a-debug.apk /data/local/tmp/vmusic.apk
+adb shell pm install -r /data/local/tmp/vmusic.apk
+
+
+2. Generating Your Own Release Keystore
+keytool -genkeypair -v \
+  -keystore release.keystore \
+  -alias vmusic-release \
+  -keyalg RSA \
+  -keysize 2048 \
+  -validity 10000 \
+  -storetype PKCS12
+
+This creates a release.keystore file. Keep this file and its password safe — you need the same key to provide updates to users in the future.
+
+3. Configuring the Keystore in the Project
+
+Option A: Via Environment Variables (Best for CI/CD or clean setups)
+
+export ANDROID_RELEASE_KEYSTORE="/path/to/your/release.keystore"
+export ANDROID_RELEASE_KEYSTORE_PASSWORD="YourKeystorePassword"
+export ANDROID_RELEASE_KEYSTORE_ALIAS="vmusic-release"
+
+Option B: Local keystore.properties (Most convenient for local builds)
+
+4. Building the Production Release APK
+
+./gradlew :app:assembleRelease
+
+app/build/outputs/apk/release/
+├── app-arm64-v8a-release.apk
+└── app-armeabi-v7a-release.apk
+
+5. Installing the Release APK on Your Phone
+
+adb push app/build/outputs/apk/release/app-arm64-v8a-release.apk /data/local/tmp/vmusic-release.apk
+adb shell pm install -r /data/local/tmp/vmusic-release.apk
+
+
+waydroid
+
+waydroid prop set persist.waydroid.width 0 && waydroid prop set persist.waydroid.height 0
+waydroid prop set persist.waydroid.width 1080 && waydroid prop set persist.waydroid.height 2400

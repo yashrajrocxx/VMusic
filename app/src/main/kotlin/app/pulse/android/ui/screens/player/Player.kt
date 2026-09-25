@@ -57,7 +57,7 @@ import app.pulse.android.ui.components.themed.SliderDialog
 import app.pulse.android.ui.components.themed.SliderDialogBody
 import app.pulse.android.utils.DisposableListener
 import app.pulse.android.utils.asMediaItem
-import app.pulse.android.utils.positionAndDurationState
+import app.pulse.android.utils.durationState
 import app.pulse.android.utils.rememberEqualizerLauncher
 import app.pulse.android.utils.rememberPipHandler
 import app.pulse.android.utils.seamlessPlay
@@ -163,7 +163,10 @@ fun Player(
         }
     }
 
-    val (position, duration) = binder?.player.positionAndDurationState()
+    // Duration alone is event-driven (no polling loop): the live position tick
+    // lives scoped inside the seek bar so the rest of this screen does not
+    // recompose four times a second.
+    val duration = binder?.player.durationState()
     val activeMediaItem = mediaItem ?: historyMediaItem
     val metadata = remember(activeMediaItem) { activeMediaItem?.mediaMetadata }
     val extras = remember(metadata) { metadata?.extras?.songBundle }
@@ -233,7 +236,6 @@ fun Player(
             binder = binder,
             likedAt = likedAt,
             setLikedAt = onSetLikedAt,
-            position = position,
             duration = duration,
             onLyricsClick = {
                 overlayMode = if (overlayMode == OverlayMode.Lyrics) OverlayMode.None else OverlayMode.Lyrics

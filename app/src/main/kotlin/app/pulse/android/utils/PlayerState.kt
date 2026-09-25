@@ -12,12 +12,14 @@ import androidx.compose.runtime.SnapshotMutationPolicy
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -109,6 +111,34 @@ fun Player?.positionAndDurationState(
     }
 
     return state
+}
+
+/**
+ * Track duration only. Unlike [positionAndDurationState] this installs no
+ * polling loop: duration changes solely on song/timeline/prepare events, so
+ * callers recompose only when it actually changes instead of 4x/second.
+ */
+@Composable
+fun Player?.durationState(): Long {
+    var duration by remember(this) { mutableLongStateOf(this?.duration ?: C.TIME_UNSET) }
+
+    DisposableListener {
+        object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                duration = player.duration
+            }
+
+            override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                duration = player.duration
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                duration = player.duration
+            }
+        }
+    }
+
+    return duration
 }
 
 typealias WindowState = Pair<Timeline.Window?, PlaybackException?>

@@ -147,7 +147,7 @@ fun SidebarLeft(
     val hoverSrc = remember { MutableInteractionSource() }
     val isHovered by hoverSrc.collectIsHoveredAsState()
 
-    // shared collapse progress (0 expanded → 1 collapsed)  same spring as the
+    // shared collapse progress (0 expanded -> 1 collapsed)  same spring as the
     // width, so the toggle/+ bubble/thumbs glide to the collapsed x-center in
     // sync with the closing box instead of riding the shrinking center.
     val collapse by animateFloatAsState(

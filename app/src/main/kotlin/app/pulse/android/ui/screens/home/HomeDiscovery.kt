@@ -33,7 +33,6 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -133,6 +132,18 @@ fun HomeDiscovery(
         return result
     }
 
+    // Shared pull-to-refresh / tap-to-retry entry point. The finally keeps the
+    // indicator honest even when the refresh is cancelled mid-flight.
+    suspend fun retryRefresh() {
+        isRefreshing = true
+        try {
+            val fresh = fetchDiscover()
+            if (fresh != null) discoverPage = fresh
+        } finally {
+            isRefreshing = false
+        }
+    }
+
     LaunchedEffect(Unit) {
         // Only load from disk/network on cold start if not already present in memory
         if (discoverPage?.isSuccess != true) {
@@ -144,12 +155,7 @@ fun HomeDiscovery(
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = {
-            scope.launch {
-                isRefreshing = true
-                val fresh = fetchDiscover()
-                if (fresh != null) discoverPage = fresh
-                isRefreshing = false
-            }
+            scope.launch { retryRefresh() }
         },
         modifier = Modifier.fillMaxSize()
     ) {
@@ -266,8 +272,7 @@ fun HomeDiscovery(
                     }
 
                     if (page.trending.songs.isNotEmpty()) {
-                        item(key = "trending_section") {
-                            Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                        item(key = "trending_section") {                            Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -332,6 +337,23 @@ fun HomeDiscovery(
                             }
                         }
                     }
+
+                    // Loaded but every section came back empty: say so and offer
+                    // a retry instead of a blank screen.
+                    if (page.moods.isEmpty() && page.newReleaseAlbums.isEmpty() &&
+                        page.trending.songs.isEmpty()
+                    ) {
+                        item(key = "empty") {
+                            BasicText(
+                                text = stringResource(R.string.no_items_found),
+                                style = typography.s.secondary.center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { scope.launch { retryRefresh() } }
+                                    .padding(all = 24.dp)
+                            )
+                        }
+                    }
                 } ?: discoverPage?.exceptionOrNull()?.let {
                     item(key = "error") {
                         BasicText(
@@ -339,6 +361,7 @@ fun HomeDiscovery(
                             style = typography.s.secondary.center,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clickable { scope.launch { retryRefresh() } }
                                 .padding(all = 16.dp)
                         )
                     }
@@ -390,7 +413,7 @@ fun MoodItem(
     val typography = LocalAppearance.current.typography
     val thumbnailShape = LocalAppearance.current.thumbnailShape
 
-    val color by remember { derivedStateOf { Color(mood.stripeColor) } }
+    val color = remember(mood.stripeColor) { Color(mood.stripeColor) }
 
     ElevatedCard(
         modifier = modifier.height(Dimensions.items.moodHeight),

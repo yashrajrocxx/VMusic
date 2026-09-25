@@ -140,6 +140,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -176,6 +177,9 @@ import android.os.Binder as AndroidBinder
 const val LOCAL_KEY_PREFIX = "local:"
 const val RADIO_KEY_PREFIX = "radio:"
 private const val TAG = "PlayerService"
+// Coalesce queue persistence: bursty play/pause/skip events settle within this
+// window into a single Room transaction instead of one write per event.
+private const val QUEUE_SAVE_DEBOUNCE_MS = 2_000L
 
 @get:OptIn(UnstableApi::class)
 val DataSpec.isLocal get() = key?.startsWith(LOCAL_KEY_PREFIX) == true
@@ -319,7 +323,9 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
 
     private lateinit var bitmapProvider: BitmapProvider
 
-    private val coroutineScope = CoroutineScope(Dispatchers.IO + Job())
+    // SupervisorJob so a single failing child (e.g. a radio fetch that throws)
+    // can never kill the whole scope and silently break playback features.
+    private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var preferenceUpdaterJob: Job? = null
     private var volumeNormalizationJob: Job? = null
     private var sponsorBlockJob: Job? = null
@@ -523,11 +529,11 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
     }
 
     override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) =
-        maybeSavePlayerQueue()
+        maybeSavePlayerQueue(immediate = !playWhenReady)
 
     override fun onDestroy() {
         runCatching {
-            maybeSavePlayerQueue()
+            maybeSavePlayerQueue(immediate = true)
 
             fadeJob?.cancel()
             playerA.removeListener(this)
@@ -1272,24 +1278,38 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
         }
     }
 
-    private fun maybeSavePlayerQueue() {
+    private var queueSaveJob: Job? = null
+
+    /**
+     * Queue persistence, coalesced. A full clear+reinsert of the whole queue was
+     * previously fired on every play/pause and every track transition, hammering
+     * the single Room transaction executor (listener history/flows back up ->
+     * jank on low-RAM devices). Pausing saves immediately so positions persist;
+     * all other changes debounce into a single write per burst.
+     */
+    private fun maybeSavePlayerQueue(immediate: Boolean = false) {
         if (!PlayerPreferences.persistentQueue) return
 
+        // Cheap main-thread reads now; the transactional write is deferred below.
         val mediaItems = player.currentTimeline.mediaItems
         val mediaItemIndex = player.currentMediaItemIndex
         val mediaItemPosition = player.currentPosition
 
-        transaction {
-            runCatching {
-                Database.clearQueue()
-                Database.insert(
-                    mediaItems.mapIndexed { index, mediaItem ->
-                        QueuedMediaItem(
-                            mediaItem = mediaItem,
-                            position = if (index == mediaItemIndex) mediaItemPosition else null
-                        )
-                    }
-                )
+        queueSaveJob?.cancel()
+        queueSaveJob = coroutineScope.launch {
+            if (!immediate) delay(QUEUE_SAVE_DEBOUNCE_MS)
+            transaction {
+                runCatching {
+                    Database.clearQueue()
+                    Database.insert(
+                        mediaItems.mapIndexed { index, mediaItem ->
+                            QueuedMediaItem(
+                                mediaItem = mediaItem,
+                                position = if (index == mediaItemIndex) mediaItemPosition else null
+                            )
+                        }
+                    )
+                }
             }
         }
     }
@@ -1812,7 +1832,10 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
                     .setBufferDurationsMs(
                         /* minBufferMs             = */ DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
                         /* maxBufferMs             = */ DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
-                        /* bufferForPlaybackMs     = */ DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                        // Start audio after ~1.2s buffered instead of the 2.5s
+                        // default: plenty for audio-only streams and cuts the
+                        // tap-to-play delay. Rebuffer protection stays at 10s.
+                        /* bufferForPlaybackMs     = */ 1_200,
                         /* bufferForPlaybackAfterRebufferMs = */ 10_000
                     )
                     .build()
@@ -2139,8 +2162,13 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
                 InnerTubeXPlayer.playerResponseForPlayback(
                     videoId = mediaId,
                 )
-            }.getOrElse {
-                throw UnplayableException()
+            }.getOrElse { failure ->
+                // Typed auth/restriction failures must survive so the player UI can
+                // offer Google login; everything else keeps the previous behavior.
+                throw when (failure) {
+                    is LoginRequiredException, is RestrictedVideoException -> failure
+                    else -> UnplayableException()
+                }
             }
 
             val streamUrl = playbackData.streamUrl
