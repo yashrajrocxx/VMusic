@@ -6,6 +6,14 @@ object CuratedIndianStations {
 
     val defaultCity = "Nanded"
 
+    /**
+     * Shared AIR artwork (verified live): every Akashvani station uses real
+     * AIR branding instead of the generic fallback icon. FM Gold Delhi and
+     * FM Rainbow carry their own network artwork below; commercial stations
+     * without a verified logo keep the mytuner placeholder.
+     */
+    private const val AIR_LOGO = "https://radiosindia.com/images/aakashvani.jpg"
+
     val stations = listOf(
         // =================== NANDED ===================
         RadioStation(
@@ -20,7 +28,7 @@ object CuratedIndianStations {
             language = "Marathi",
             lat = 19.1383,
             lon = 77.3210,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
             tags = listOf("Regional", "Talk", "News", "Culture", "Marathi")
         ),
@@ -86,14 +94,14 @@ object CuratedIndianStations {
             language = "Marathi",
             lat = 18.5204,
             lon = 73.8567,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
             tags = listOf("Regional", "Marathi", "News", "Classical", "Talk")
         ),
         RadioStation(
             id = "radio_city_marathi",
             name = "Radio City Marathi",
-            streamUrl = "http://stream.zeno.fm/48kybvzrwfeuv",
+            streamUrl = "https://stream.zeno.fm/48kybvzrwfeuv",
             frequency = "91.1 Web",
             city = "Pune",
             state = "Maharashtra",
@@ -118,7 +126,7 @@ object CuratedIndianStations {
             language = "Hindi",
             lat = 18.5204,
             lon = 73.8567,
-            logoUrl = "https://mytuner.global.ssl.fastly.net/media/tvos_radios/ppqbgfej6skx.jpeg",
+            logoUrl = "https://mirchi.in/favicon-196x196.png",
             bitrate = 128,
             tags = listOf("Bollywood", "Hits", "Hindi", "RJ Talk")
         ),
@@ -136,9 +144,12 @@ object CuratedIndianStations {
             language = "Hindi",
             lat = 18.9220,
             lon = 72.8347,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
-            tags = listOf("National", "Golden Era", "Retro", "Hindi", "Talk")
+            tags = listOf("National", "Golden Era", "Retro", "Hindi", "Talk"),
+            // Alternate AIR path (verified live): the httppush endpoint fails
+            // on some networks, the player auto-retries this before going offline.
+            fallbackStreamUrls = listOf("https://air.pc.cdn.bitgravity.com/air/live/pbaudio001/playlist.m3u8")
         ),
         RadioStation(
             id = "air_rainbow_mumbai",
@@ -152,9 +163,10 @@ object CuratedIndianStations {
             language = "Hindi",
             lat = 18.9220,
             lon = 72.8347,
-            logoUrl = null,
+            logoUrl = "https://onlineradiohub.com/wp-content/uploads/2024/02/akashvaniFMRainbowKolkata.jpg",
             bitrate = 128,
-            tags = listOf("Music", "Hindi", "English", "Youth")
+            tags = listOf("Music", "Hindi", "English", "Youth"),
+            fallbackStreamUrls = listOf("https://air.pc.cdn.bitgravity.com/air/live/pbaudio001/playlist.m3u8")
         ),
         RadioStation(
             id = "filmy_mirchi",
@@ -191,10 +203,12 @@ object CuratedIndianStations {
 
         // =================== MAHARASHTRA REGIONAL ===================
         RadioStation(
-            id = "air_nagpur",
-            name = "AIR Nagpur",
-            streamUrl = "https://air.pc.cdn.bitgravity.com/air/live/pbaudio070/playlist.m3u8",
-            frequency = "100.6 FM",
+            id = "radio_nagpur_live",
+            name = "Radio Nagpur Live",
+            // Verified live: the old AIR bitgravity URL 404s. Resolved via
+            // Radio Garden's directory to the station's own server.
+            streamUrl = "https://a6.asurahosting.com:8360/radio.mp3",
+            frequency = "Online",
             city = "Nagpur",
             state = "Maharashtra",
             country = "India",
@@ -218,7 +232,7 @@ object CuratedIndianStations {
             language = "Marathi",
             lat = 16.7050,
             lon = 74.2433,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
             tags = listOf("Marathi", "Regional", "Folk", "Talk")
         ),
@@ -234,7 +248,7 @@ object CuratedIndianStations {
             language = "Marathi",
             lat = 19.8762,
             lon = 75.3433,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
             tags = listOf("Marathi", "Marathwada", "News", "Culture")
         ),
@@ -252,7 +266,7 @@ object CuratedIndianStations {
             language = "Hindi",
             lat = 28.6139,
             lon = 77.2090,
-            logoUrl = null,
+            logoUrl = "https://onlineradiohub.com/wp-content/uploads/2023/06/fm-gold-delhi.jpg",
             bitrate = 128,
             tags = listOf("National", "Gold", "News", "Hindi", "Retro")
         ),
@@ -286,7 +300,7 @@ object CuratedIndianStations {
             language = "Kannada",
             lat = 12.9716,
             lon = 77.5946,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
             tags = listOf("Kannada", "Music", "Regional")
         ),
@@ -304,7 +318,7 @@ object CuratedIndianStations {
             language = "Telugu",
             lat = 17.3850,
             lon = 78.4867,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
             tags = listOf("Telugu", "Hindi", "Melodies")
         ),
@@ -322,7 +336,7 @@ object CuratedIndianStations {
             language = "Tamil",
             lat = 13.0827,
             lon = 80.2707,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
             tags = listOf("Tamil", "Gold", "Music", "Carnatic")
         ),
@@ -340,7 +354,7 @@ object CuratedIndianStations {
             language = "Bengali",
             lat = 22.5726,
             lon = 88.3639,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
             tags = listOf("Bengali", "Music", "Rabindra Sangeet", "News")
         ),
@@ -358,7 +372,7 @@ object CuratedIndianStations {
             language = "Punjabi",
             lat = 31.3260,
             lon = 75.5762,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
             tags = listOf("Punjabi", "Folk", "Bhangra", "Gurbani")
         ),
@@ -376,7 +390,7 @@ object CuratedIndianStations {
             language = "Gujarati",
             lat = 23.0225,
             lon = 72.5714,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
             tags = listOf("Gujarati", "Garba", "Folk", "News")
         ),
@@ -394,7 +408,7 @@ object CuratedIndianStations {
             language = "Hindi",
             lat = 26.9124,
             lon = 75.7873,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
             tags = listOf("Rajasthani", "Folk", "Culture", "Hindi")
         ),
@@ -412,7 +426,7 @@ object CuratedIndianStations {
             language = "Malayalam",
             lat = 9.9312,
             lon = 76.2673,
-            logoUrl = null,
+            logoUrl = AIR_LOGO,
             bitrate = 128,
             tags = listOf("Malayalam", "South", "Melodies")
         )

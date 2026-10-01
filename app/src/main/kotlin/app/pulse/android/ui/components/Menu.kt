@@ -53,9 +53,20 @@ class MenuState {
     var content by mutableStateOf<@Composable () -> Unit>({})
         private set
 
+    /**
+     * Wall-clock of the last [display] call. Dim taps inside the grace
+     * window are ignored (see BottomSheetMenu): without this, an impatient
+     * second tap — or a finger bounce — lands on the rising dim and
+     * instantly re-closes the just-opened menu, which reads as a dead
+     * 3-dot button.
+     */
+    var lastDisplayAt: Long = 0L
+        private set
+
     fun display(content: @Composable () -> Unit) {
         this.content = content
         generation++
+        lastDisplayAt = System.currentTimeMillis()
         isDisplayed = true
     }
 
@@ -115,7 +126,20 @@ fun BottomSheetMenu(
     ) {
         Spacer(
             modifier = Modifier
-                .pressable(onRelease = state::hide)
+                // Hit-testable only while actually open: the moment hide()
+                // flips the flag, the fading-out dim must let taps through
+                // to the button beneath instead of swallowing the reopen.
+                .then(
+                    if (state.isDisplayed) Modifier.pressable(onRelease = {
+                        // Open-priority: a tap landing on the rising dim
+                        // right after display() is a bounce/re-tap, not a
+                        // close intent. Real outside-taps (after the grace
+                        // window), slide-down and back still dismiss
+                        // instantly.
+                        if (System.currentTimeMillis() - state.lastDisplayAt > 400) state.hide()
+                    })
+                    else Modifier
+                )
                 .alpha(bottomSheetState.progress * 0.5f)
                 .background(Color.Black)
                 .fillMaxSize()

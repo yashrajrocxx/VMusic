@@ -366,15 +366,23 @@ fun NewLayoutContent(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {},
-                onDoubleClick = { fireLikeBurst() }
-            )
     ) {
+        // Like-on-double-tap lives on the artwork layer only: no button
+        // anywhere on this screen sits under a double-tap detector, so a
+        // tap can never be swallowed or re-routed by gesture arbitration.
         Box(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                    // Artwork only: while the queue or lyrics overlay is open,
+                    // double-taps belong to that overlay, never to like.
+                    onDoubleClick = {
+                        if (!isShowingLyrics && !isShowingQueue) fireLikeBurst()
+                    }
+                )
         ) {
             if (artworkUri != null) {
                 key(artworkUri, isShowingLyrics || isShowingQueue) {
@@ -536,7 +544,7 @@ fun NewLayoutContent(
                             contentDescription = null,
                             colorFilter = ColorFilter.tint(colorPalette.text),
                             modifier = Modifier
-                                .clickable(enabled = isShowingQueue) {
+                                .noRippleClickable(enabled = isShowingQueue) {
                                     setLikedAt(
                                         if (likedAt == null) System.currentTimeMillis() else null
                                     )
@@ -627,7 +635,7 @@ fun NewLayoutContent(
                             contentDescription = null,
                             colorFilter = ColorFilter.tint(colorPalette.text),
                             modifier = Modifier
-                                .clickable {
+                                .noRippleClickable {
                                     setLikedAt(
                                         if (likedAt == null) System.currentTimeMillis() else null
                                     )
@@ -662,7 +670,7 @@ fun NewLayoutContent(
                         contentDescription = null,
                         colorFilter = ColorFilter.tint(colorPalette.accent),
                         modifier = Modifier
-                            .clickable { player.forceSeekToPrevious() }
+                            .noRippleClickable { player.forceSeekToPrevious() }
                             .size(38.dp)
                     )
 
@@ -671,7 +679,7 @@ fun NewLayoutContent(
                     Box(
                         modifier = Modifier
                             .size(60.dp)
-                            .clickable {
+                            .noRippleClickable {
                                 if (shouldBePlaying) player.pause()
                                 else {
                                     if (player.playbackState == Player.STATE_IDLE) player.prepare()
@@ -703,7 +711,7 @@ fun NewLayoutContent(
                         contentDescription = null,
                         colorFilter = ColorFilter.tint(colorPalette.accent),
                         modifier = Modifier
-                            .clickable { player.forceSeekToNext() }
+                            .noRippleClickable { player.forceSeekToNext() }
                             .size(38.dp)
                     )
 
@@ -750,7 +758,7 @@ fun NewLayoutContent(
                             else colorPalette.accent.copy(alpha = 0.25f)
                         ),
                         modifier = Modifier
-                            .clickable(enabled = lyricsReady, onClick = onLyricsClick)
+                            .noRippleClickable(enabled = lyricsReady, onClick = onLyricsClick)
                             .size(24.dp)
                     )
 
@@ -759,7 +767,7 @@ fun NewLayoutContent(
                         contentDescription = null,
                         colorFilter = ColorFilter.tint(colorPalette.accent),
                         modifier = Modifier
-                            .clickable(onClick = onQueueClick)
+                            .noRippleClickable(onClick = onQueueClick)
                             .size(24.dp)
                     )
 
@@ -768,7 +776,7 @@ fun NewLayoutContent(
                         contentDescription = null,
                         colorFilter = ColorFilter.tint(colorPalette.accent),
                         modifier = Modifier
-                            .clickable(onClick = onMenuLaunch)
+                            .noRippleClickable(onClick = onMenuLaunch)
                             .size(40.dp)
                             .padding(8.dp)
                     )
@@ -777,6 +785,19 @@ fun NewLayoutContent(
         }
     }
 }
+
+// Icon buttons across the big player: a tap must only swap the icon, never
+// flash the default Material ripple (a white blob on dark artwork).
+@Composable
+private fun Modifier.noRippleClickable(
+    enabled: Boolean = true,
+    onClick: () -> Unit
+): Modifier = clickable(
+    interactionSource = remember { MutableInteractionSource() },
+    indication = null,
+    enabled = enabled,
+    onClick = onClick
+)
 
 @Composable
 private fun NewLayoutVolumeSlider(

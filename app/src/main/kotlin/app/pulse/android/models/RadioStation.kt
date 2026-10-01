@@ -19,5 +19,11 @@ data class RadioStation(
     val lon: Double = 0.0,
     val logoUrl: String? = null,
     val bitrate: Int? = 128,
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    /**
+     * Alternate stream URLs tried in order when [streamUrl] errors
+     * (regional CDN failure, rotated endpoint). Empty = previous
+     * behavior: error toast and stop.
+     */
+    val fallbackStreamUrls: List<String> = emptyList()
 )

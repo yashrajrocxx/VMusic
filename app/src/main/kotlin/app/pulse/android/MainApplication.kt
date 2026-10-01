@@ -395,8 +395,6 @@ class MainActivity : ComponentActivity(), MonetColorsChangedListener {
                     isShowingStatsForNerds = false,
                     onShowStatsForNerds = { },
                     onOpenDialog = { },
-                    likedAt = null,
-                    setLikedAt = { },
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.FillBounds,
                     shouldShowSynchronizedLyrics = true,

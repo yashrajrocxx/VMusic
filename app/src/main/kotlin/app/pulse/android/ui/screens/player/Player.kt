@@ -244,7 +244,9 @@ fun Player(
                 overlayMode = if (overlayMode == OverlayMode.Queue) OverlayMode.None else OverlayMode.Queue
             },
             onMenuLaunch = {
-                mediaItem?.let {
+                // Fall back to the shown item: a transiently null live item
+                // must never turn the button into a dead tap.
+                (mediaItem ?: historyMediaItem)?.let {
                     menuState.display {
                         PlayerMenu(
                             onDismiss = menuState::hide,

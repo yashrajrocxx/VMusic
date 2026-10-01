@@ -23,5 +23,7 @@ fun RadioStation.asRadioMediaItem(): MediaItem {
 }
 
 fun PlayerService.Binder.playRadio(station: RadioStation) {
+    radioStreamUrls = listOf(station.streamUrl) + station.fallbackStreamUrls
+    radioStreamUrlIndex = 0
     player.forcePlay(station.asRadioMediaItem())
 }

@@ -11,10 +11,19 @@ import android.util.LruCache
 import java.util.concurrent.TimeUnit
 
 object RadioBrowserApi {
-    private const val BASE_URL = "https://all.api.radio-browser.info/json"
+    /**
+     * Mirror fallback: `all` round-robins server-side, but when it is down
+     * the whole radio tab goes empty. Try the two main mirrors before
+     * giving up so one outage never blanks the section.
+     */
+    private val baseUrls = listOf(
+        "https://all.api.radio-browser.info/json",
+        "https://de1.api.radio-browser.info/json",
+        "https://de2.api.radio-browser.info/json"
+    )
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
@@ -41,7 +50,11 @@ object RadioBrowserApi {
         val favicon: String = "",
         val tags: String = "",
         val geo_lat: Double? = null,
-        val geo_long: Double? = null
+        val geo_long: Double? = null,
+        // Server health-check flag (1 = stream verified working). Filtering
+        // on this instead of trusting hidebroken alone is what keeps dead
+        // stations out of the lists.
+        val lastcheckok: Int = 0
     )
 
     private fun RadioBrowserStation.toDomain(): RadioStation {
@@ -69,16 +82,16 @@ object RadioBrowserApi {
         val cacheKey = "in_stations_$limit"
         searchCache[cacheKey]?.let { return@withContext it }
 
-        val url = "$BASE_URL/stations/search?countrycode=IN&hidebroken=true&order=votes&reverse=true&limit=$limit"
-        fetchFromUrl(url).also { searchCache.put(cacheKey, it) }
+        val url = "/stations/search?countrycode=IN&hidebroken=true&order=clickcount&reverse=true&limit=$limit"
+        fetchStations(url).also { searchCache.put(cacheKey, it) }
     }
 
     suspend fun getGlobalStations(limit: Int = 40): List<RadioStation> = withContext(Dispatchers.IO) {
         val cacheKey = "global_stations_$limit"
         searchCache[cacheKey]?.let { return@withContext it }
 
-        val url = "$BASE_URL/stations/search?hidebroken=true&order=votes&reverse=true&limit=$limit"
-        fetchFromUrl(url).also { searchCache.put(cacheKey, it) }
+        val url = "/stations/search?hidebroken=true&order=clickcount&reverse=true&limit=$limit"
+        fetchStations(url).also { searchCache.put(cacheKey, it) }
     }
 
     suspend fun getStationsByCountry(countryCode: String, limit: Int = 40): List<RadioStation> = withContext(Dispatchers.IO) {
@@ -87,35 +100,50 @@ object RadioBrowserApi {
         val cacheKey = "country_${code}_$limit"
         searchCache[cacheKey]?.let { return@withContext it }
 
-        val url = "$BASE_URL/stations/search?countrycode=$code&hidebroken=true&order=votes&reverse=true&limit=$limit"
-        fetchFromUrl(url).also { searchCache.put(cacheKey, it) }
+        val url = "/stations/search?countrycode=$code&hidebroken=true&order=clickcount&reverse=true&limit=$limit"
+        fetchStations(url).also { searchCache.put(cacheKey, it) }
     }
 
     suspend fun search(query: String, limit: Int = 30): List<RadioStation> = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext emptyList()
 
-        val cacheKey = "search_${trimmed.lowercase()}"
+        val cacheKey = "search_${trimmed.lowercase()}_$limit"
         searchCache[cacheKey]?.let { return@withContext it }
 
         val encoded = java.net.URLEncoder.encode(trimmed, "UTF-8")
-        val url = "$BASE_URL/stations/byname/$encoded?limit=$limit&hidebroken=true&order=votes&reverse=true"
-        fetchFromUrl(url).also { searchCache.put(cacheKey, it) }
+        val url = "/stations/byname/$encoded?limit=$limit&hidebroken=true&order=clickcount&reverse=true"
+        fetchStations(url).also { searchCache.put(cacheKey, it) }
     }
 
     suspend fun getStationsByLanguage(language: String, limit: Int = 30): List<RadioStation> = withContext(Dispatchers.IO) {
         val trimmed = language.trim()
         if (trimmed.isBlank() || trimmed.equals("All", ignoreCase = true)) return@withContext getIndianStations(limit)
 
-        val cacheKey = "lang_${trimmed.lowercase()}"
+        val cacheKey = "lang_${trimmed.lowercase()}_$limit"
         searchCache[cacheKey]?.let { return@withContext it }
 
         val encoded = java.net.URLEncoder.encode(trimmed.lowercase(), "UTF-8")
-        val url = "$BASE_URL/stations/bylanguage/$encoded?limit=$limit&hidebroken=true&order=votes&reverse=true"
-        fetchFromUrl(url).also { searchCache.put(cacheKey, it) }
+        val url = "/stations/bylanguage/$encoded?limit=$limit&hidebroken=true&order=clickcount&reverse=true"
+        fetchStations(url).also { searchCache.put(cacheKey, it) }
     }
 
-    private fun fetchFromUrl(url: String): List<RadioStation> {
+    /**
+     * Same fetch as before, but across mirrors: the first mirror that
+     * answers wins (even with an empty list — a legit empty result must
+     * not fan out to every mirror). Only network/HTTP failures fall
+     * through to the next mirror.
+     */
+    private fun fetchStations(path: String): List<RadioStation> {
+        for (base in baseUrls) {
+            val result = fetchOnce("$base$path") ?: continue
+            return result
+        }
+        return emptyList()
+    }
+
+    /** Null on transport/HTTP failure; a (possibly empty) list on success. */
+    private fun fetchOnce(url: String): List<RadioStation>? {
         return try {
             val request = Request.Builder()
                 .url(url)
@@ -123,15 +151,15 @@ object RadioBrowserApi {
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return emptyList()
-                val bodyString = response.body?.string() ?: return emptyList()
+                if (!response.isSuccessful) return null
+                val bodyString = response.body.string()
                 val rawStations: List<RadioBrowserStation> = json.decodeFromString(bodyString)
                 rawStations
-                    .filter { it.url_resolved.isNotBlank() && it.name.isNotBlank() }
+                    .filter { it.url_resolved.isNotBlank() && it.name.isNotBlank() && it.lastcheckok == 1 }
                     .map { it.toDomain() }
             }
         } catch (_: Exception) {
-            emptyList()
+            null
         }
     }
 }

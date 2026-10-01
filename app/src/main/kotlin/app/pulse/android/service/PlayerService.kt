@@ -94,6 +94,7 @@ import app.pulse.android.utils.broadcastPendingIntent
 import app.pulse.android.utils.defaultDataSource
 import app.pulse.android.utils.findCause
 import app.pulse.android.utils.findNextMediaItemById
+import app.pulse.android.utils.forcePlay
 import app.pulse.android.utils.forcePlayFromBeginning
 import app.pulse.android.utils.forceSeekToNext
 import app.pulse.android.utils.forceSeekToPrevious
@@ -661,6 +662,16 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
         val currentItem = player.currentMediaItem
         if (currentItem?.isRadio == true) {
             val title = currentItem.mediaMetadata.title ?: "Radio station"
+            // Fail over to the next stream URL before declaring the station
+            // offline: same item (same id/metadata, UI keeps showing it),
+            // just a new URI. Only the exhausted list toasts and stops.
+            val nextUrl = binder.radioStreamUrls.getOrNull(binder.radioStreamUrlIndex + 1)
+            if (nextUrl != null) {
+                binder.radioStreamUrlIndex++
+                Log.w(TAG, "Radio stream failed: $title (${error.errorCodeName}), trying fallback ${binder.radioStreamUrlIndex + 1}/${binder.radioStreamUrls.size}")
+                player.forcePlay(currentItem.buildUpon().setUri(nextUrl.toUri()).build())
+                return
+            }
             Log.w(TAG, "Radio stream failed: $title (${error.errorCodeName})")
             player.stop()
             handler.post {
@@ -1903,6 +1914,14 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
 
         var isLoadingRadio by mutableStateOf(false)
             private set
+
+        /**
+         * Station stream failover: every URL being tried for the current
+         * station, primary first. A radio error advances [radioStreamUrlIndex]
+         * instead of dying while untried URLs remain.
+         */
+        internal var radioStreamUrls: List<String> = emptyList()
+        internal var radioStreamUrlIndex: Int = 0
 
         var invincible
             get() = isInvincibilityEnabled

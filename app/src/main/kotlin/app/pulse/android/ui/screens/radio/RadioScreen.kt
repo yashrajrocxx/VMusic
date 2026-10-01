@@ -52,6 +52,7 @@ import app.pulse.android.LocalPlayerServiceBinder
 import app.pulse.android.R
 import app.pulse.android.data.CuratedIndianStations
 import app.pulse.android.data.RadioBrowserApi
+import app.pulse.android.data.RadioGardenApi
 import app.pulse.android.models.RadioStation
 import app.pulse.android.preferences.RadioPreferences
 import app.pulse.android.ui.components.LocalMenuState
@@ -69,6 +70,7 @@ import app.pulse.android.utils.center
 import app.pulse.android.utils.medium
 import app.pulse.android.utils.playRadio
 import app.pulse.android.utils.playingSong
+import app.pulse.android.utils.rememberIsBuffering
 import app.pulse.android.utils.secondary
 import app.pulse.android.utils.semiBold
 import app.pulse.android.utils.shouldBePlaying
@@ -80,6 +82,14 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 
 private val countryStationsCache = mutableMapOf<String, List<RadioStation>>()
+private val gardenStationsCache = mutableMapOf<String, List<RadioStation>>()
+
+/** Radio Garden lookup city per filter; null where curated alone applies. */
+private fun gardenCityFor(filter: String) = when (filter) {
+    "Maharashtra", "All India" -> null
+    "Delhi NCR" -> "New Delhi"
+    else -> filter
+}
 
 @Composable
 fun RadioScreen() {
@@ -95,15 +105,20 @@ fun RadioScreen() {
     var countryStations by remember { mutableStateOf<List<RadioStation>>(countryStationsCache[selectedFilter] ?: emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
 
+    // Radio Garden stations for Indian cities, merged under the curated
+    // list. radio-browser stays the source for countries and the fallback
+    // when a city has neither curated nor Garden stations.
+    val context = LocalContext.current.applicationContext
+    var gardenStations by remember { mutableStateOf<List<RadioStation>>(emptyList()) }
+    val gardenCity = remember(selectedFilter) { gardenCityFor(selectedFilter) }
+
     // Player state
     val (currentMediaId, isPlaying) = playingSong(binder)
-
-    // Which station the user just tapped, so its artwork can show a
-    // loading indicator (matching the mini player) until the radio starts.
-    var pendingStationId by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(binder?.isLoadingRadio) {
-        if (binder?.isLoadingRadio != true) pendingStationId = null
-    }
+    // Loading truth for station taps: the artwork spinner follows the
+    // player's real buffering state. (The old pendingStationId flag waited
+    // on isLoadingRadio, which only YouTube-radio ever sets, so the spinner
+    // could never appear for station taps.)
+    val isPlayerBuffering = binder?.player.rememberIsBuffering()
 
     val isCountry = remember(selectedFilter) {
         CuratedIndianStations.countries.any { it.name.equals(selectedFilter, ignoreCase = true) }
@@ -112,6 +127,7 @@ fun RadioScreen() {
     LaunchedEffect(selectedFilter) {
         val country = CuratedIndianStations.countries.firstOrNull { it.name.equals(selectedFilter, ignoreCase = true) }
         if (country != null) {
+            gardenStations = emptyList()
             val cached = countryStationsCache[country.code]
             if (cached != null) {
                 countryStations = cached
@@ -127,15 +143,40 @@ fun RadioScreen() {
             }
         } else {
             countryStations = emptyList()
-            isLoading = false
+            val city = gardenCity
+            if (city != null) {
+                val cached = gardenStationsCache[city]
+                if (cached != null) {
+                    gardenStations = cached
+                    isLoading = false
+                } else {
+                    isLoading = true
+                    val fetched = runCatching {
+                        val garden = RadioGardenApi.getCityStations(context.cacheDir, city)
+                        if (garden.isNotEmpty()) garden
+                        else RadioBrowserApi.search(city, limit = 30)
+                            .ifEmpty { RadioBrowserApi.getIndianStations(limit = 50) }
+                    }.getOrDefault(emptyList())
+                    gardenStationsCache[city] = fetched
+                    gardenStations = fetched
+                    isLoading = false
+                }
+            } else {
+                gardenStations = emptyList()
+                isLoading = false
+            }
         }
     }
 
-    val displayedStations = remember(selectedFilter, countryStations, isCountry) {
+    val displayedStations = remember(selectedFilter, countryStations, gardenStations, isCountry) {
         if (isCountry) {
             countryStations
         } else {
-            CuratedIndianStations.getStationsForIndianPlace(selectedFilter)
+            // Curated first (direct streams, real logos), Garden channels
+            // appended and de-duplicated by name so the same station never
+            // appears twice.
+            (CuratedIndianStations.getStationsForIndianPlace(selectedFilter) + gardenStations)
+                .distinctBy { it.name.lowercase() }
         }
     }
 
@@ -163,7 +204,6 @@ fun RadioScreen() {
             val player = binder?.player ?: return
             if (player.shouldBePlaying) player.pause() else player.play()
         } else {
-            pendingStationId = station.id
             binder?.playRadio(station)
         }
     }
@@ -257,7 +297,7 @@ fun RadioScreen() {
                             RadioFavoriteCard(
                                 station = station,
                                 isPlaying = isThisStationPlaying && isPlaying,
-                                isLoading = pendingStationId == station.id && binder?.isLoadingRadio == true,
+                                isLoading = isThisStationPlaying && isPlayerBuffering,
                                 onClick = { togglePlay(station, isThisStationPlaying) }
                             )
                         }
@@ -318,7 +358,7 @@ fun RadioScreen() {
                     RadioStationRow(
                         station = station,
                         isPlaying = isThisStationPlaying && isPlaying,
-                        isLoading = pendingStationId == station.id && binder?.isLoadingRadio == true,
+                        isLoading = isThisStationPlaying && isPlayerBuffering,
                         isFavorite = isFavorite(station),
                         onTogglePlay = { togglePlay(station, isThisStationPlaying) },
                         onFavoriteClick = { toggleFavorite(station) }
@@ -437,7 +477,7 @@ private fun RadioFavoriteCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val (colorPalette, typography) = LocalAppearance.current
+    val (_, typography) = LocalAppearance.current
     val artSize = Dimensions.thumbnails.artist
 
     ItemContainer(
@@ -463,15 +503,6 @@ private fun RadioFavoriteCard(
             BasicText(
                 text = stationDetails(station),
                 style = typography.xxs.secondary.center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        if (isPlaying) {
-            BasicText(
-                text = stringResource(R.string.now_playing).lowercase(),
-                style = typography.xxs.medium.center.copy(color = colorPalette.accent),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

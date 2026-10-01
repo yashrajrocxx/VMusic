@@ -6,31 +6,24 @@ import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection.
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -38,9 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.layout.ContentScale
@@ -72,7 +63,6 @@ import app.pulse.core.ui.Dimensions
 import app.pulse.core.ui.LocalAppearance
 import app.pulse.core.ui.utils.px
 import coil3.compose.AsyncImage
-import kotlinx.coroutines.launch
 import java.net.UnknownHostException
 import java.nio.channels.UnresolvedAddressException
 
@@ -84,8 +74,6 @@ fun Thumbnail(
     isShowingStatsForNerds: Boolean,
     onShowStatsForNerds: (Boolean) -> Unit,
     onOpenDialog: () -> Unit,
-    likedAt: Long?,
-    setLikedAt: (Long?) -> Unit,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.FillWidth,
     shouldShowSynchronizedLyrics: Boolean = PlayerPreferences.isShowingSynchronizedLyrics,
@@ -99,16 +87,6 @@ fun Thumbnail(
 
     val (window, error) = windowState()
 
-    val coroutineScope = rememberCoroutineScope()
-    val transitionState = remember { SeekableTransitionState(false) }
-    val transition = rememberTransition(transitionState)
-    val opacity by transition.animateFloat(label = "") { if (it) 1f else 0f }
-    val scale by transition.animateFloat(
-        label = "",
-        transitionSpec = {
-            spring(dampingRatio = Spring.DampingRatioLowBouncy)
-        }
-    ) { if (it) 1f else 0f }
     val isInPip = isInPip()
 
     AnimatedContent(
@@ -181,10 +159,8 @@ fun Thumbnail(
 
             if (artwork != null) {
                 // Current callbacks: this gesture node never restarts, so it
-                // must read through holders (track changes would like the
-                // wrong song after a skip).
-                val currentLikedAt by rememberUpdatedState(likedAt)
-                val currentSetLikedAt by rememberUpdatedState(setLikedAt)
+                // must read through holders (track changes would open lyrics
+                // for the wrong song after a skip).
                 val currentOnShowLyrics by rememberUpdatedState(onShowLyrics)
                 val currentOnShowStats by rememberUpdatedState(onShowStatsForNerds)
                 AsyncImage(
@@ -198,32 +174,7 @@ fun Thumbnail(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             onClick = { currentOnShowLyrics(true) },
-                            onLongClick = { currentOnShowStats(true) },
-                            onDoubleClick = {
-                                // Like-only (never unlikes: an already-liked
-                                // song just replays the burst below).
-                                if (currentLikedAt == null) {
-                                    currentSetLikedAt(System.currentTimeMillis())
-                                }
-
-                                coroutineScope.launch {
-                                    transitionState.animateTo(
-                                        true,
-                                        spring(
-                                            dampingRatio = Spring.DampingRatioLowBouncy,
-                                            stiffness = Spring.StiffnessMediumLow
-                                        )
-                                    )
-                                    kotlinx.coroutines.delay(350)
-                                    transitionState.animateTo(
-                                        false,
-                                        spring(
-                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                            stiffness = Spring.StiffnessMediumLow
-                                        )
-                                    )
-                                }
-                            }
+                            onLongClick = { currentOnShowStats(true) }
                         )
                         .align(Alignment.Center)
                         .fillMaxWidth()
@@ -257,22 +208,6 @@ fun Thumbnail(
                 isDisplayed = isShowingStatsForNerds && error == null,
                 onDismiss = { onShowStatsForNerds(false) },
                 modifier = Modifier.height(height.px.dp)
-            )
-
-            Image(
-                painter = painterResource(R.drawable.heart),
-                contentDescription = null,
-                colorFilter = ColorFilter.tint(colorPalette.accent),
-                modifier = Modifier
-                    .fillMaxSize(0.62f)
-                    .aspectRatio(1f)
-                    .align(Alignment.Center)
-                    .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        alpha = opacity,
-                        shadowElevation = 8.dp.px.toFloat()
-                    )
             )
 
             PlaybackError(
