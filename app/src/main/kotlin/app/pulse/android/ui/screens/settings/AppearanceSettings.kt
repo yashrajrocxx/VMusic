@@ -74,9 +74,13 @@ fun AppearanceSettings() {
                 valueText = { it.nameLocalized }
             )
             AnimatedVisibility(visible = colorMode == ColorMode.Dark || (colorMode == ColorMode.System && isDark)) {
-                EnumValueSelectorSettingsEntry(
+                // PureBlack is legacy (auto-migrated to AMOLED): don't offer it as a duplicate choice.
+                ValueSelectorSettingsEntry(
                     title = stringResource(R.string.darkness),
                     selectedValue = darkness,
+                    values = remember {
+                        Darkness.entries.filter { it != Darkness.PureBlack }.toImmutableList()
+                    },
                     onValueSelect = { darkness = it },
                     valueText = { it.nameLocalized }
                 )

@@ -28,8 +28,7 @@ fun MorphingDock(
     val compact = AppearancePreferences.compactDock
     val dockPad = if (compact) 16.dp else 24.dp
     val dockSpacing = if (compact) 6.dp else 8.dp
-    val dockHeightExtra = if (compact) 64.dp else 80.dp
-    val dockOverscrollDip = if (compact) 12.dp else 16.dp
+    val topPad = 4.dp
 
     val density = LocalDensity.current
     val (colorPalette) = LocalAppearance.current
@@ -49,26 +48,51 @@ fun MorphingDock(
     val playerMorphProgress = ((clampedP - 0.2f) / 0.7f).coerceIn(0f, 1f)
     val playerSlideProgress = ((clampedP - 0.5f) / 0.4f).coerceIn(0f, 1f)
 
+    val dockOverscrollDip = if (compact) 12.dp else 16.dp
+
+    // Hoisted so the container hugs its content: without an active song there is
+    // only one pill row, so a fixed two-row height would leave a tall empty fade.
+    val miniPlayerState = app.pulse.android.ui.components.rememberMiniPlayerState()
+    val hasActiveSong = miniPlayerState.activeMediaItem != null
+    val baseSize = if (compact) Dimensions.items.collapsedPlayerHeight else 64.dp
+
+    // Fade runway matched to the pills: taller when the stacked mini-player is
+    // present (two rows need a longer dissolve), shorter for the navbar alone.
+    // Tracks the scroll-collapse live: as the dock folds to a single row the
+    // fade breathes down with it instead of jumping between two heights.
+    // Purpose-built as a legibility scrim (list text must not clash with tab
+    // text), not decoration — so it stays short and settles solid right
+    // behind the pills.
+    val collapse = if (hasActiveSong) playerSlideProgress else 0f
+    val rows = (if (hasActiveSong) 2f else 1f) - collapse
+    val contentHeight = baseSize * rows + dockSpacing * (rows - 1f).coerceAtLeast(0f)
+    val scrimHeight = ((if (hasActiveSong) 88f else 64f) - 24f * collapse).dp
+
+    // One continuous scrim with no solid block: fully transparent at the top,
+    // reaching solid only at the very bottom edge of the screen. The pills
+    // float over translucency, so there is never a hard solid rectangle
+    // behind them. Driven by background0, so it matches light/dark/AMOLED.
+    val backdropBrush = remember(colorPalette.background0) {
+        Brush.verticalGradient(
+            colorStops = arrayOf(
+                0f to Color.Transparent,
+                0.5f to colorPalette.background0.copy(alpha = 0.45f),
+                0.8f to colorPalette.background0.copy(alpha = 0.85f),
+                1f to colorPalette.background0
+            )
+        )
+    }
+
     BoxWithConstraints(
         modifier = modifier
-            .background(
-                brush = remember(colorPalette.background0) {
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            colorPalette.background0.copy(alpha = 0.8f),
-                            colorPalette.background0
-                        )
-                    )
-                }
-            )
+            .background(backdropBrush)
             .safeDrawingPadding()
-            .padding(horizontal = dockPad, vertical = dockPad)
+            .padding(horizontal = dockPad)
+            .padding(top = topPad, bottom = dockPad)
             .fillMaxWidth()
-            .height(Dimensions.items.collapsedPlayerHeight * 2 + dockSpacing + dockHeightExtra)
+            .height(scrimHeight + contentHeight)
     ) {
         val fullWidth = maxWidth
-        val baseSize = if (compact) Dimensions.items.collapsedPlayerHeight else 64.dp
 
         // Structural morph, shrink circle to 80% of baseSize at p=1.0
         val morphFactor = clampedP
@@ -116,9 +140,6 @@ fun MorphingDock(
         }
 
         // 3. Mini player (Center pill) - only rendered when music is actively loaded/playing
-        val miniPlayerState = app.pulse.android.ui.components.rememberMiniPlayerState()
-        val hasActiveSong = miniPlayerState.activeMediaItem != null
-
         if (hasActiveSong) {
             val playerLandingWidth = fullWidth - (currentCircleSize * 2) - (dockSpacing * 2)
             val expandedPlayerWidth = fullWidth

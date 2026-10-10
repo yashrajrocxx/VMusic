@@ -16,5 +16,7 @@ enum class ColorMode {
 enum class Darkness {
     Normal,
     AMOLED,
+    // Legacy only: hidden from settings and auto-migrated to AMOLED on launch.
+    // Kept so stored "PureBlack" preferences don't silently fall back to Normal.
     PureBlack
 }

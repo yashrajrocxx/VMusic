@@ -136,7 +136,8 @@ fun HomeScreen() {
                                     p2 = null,
                                     p3 = it.channel?.name == "YouTube Music"
                                 )
-                            }
+                            },
+                            onMoodClick = { mood -> moodRoute(mood.toUiMood()) }
                         )
 
                         1 -> HomeDiscovery(

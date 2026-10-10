@@ -2,6 +2,7 @@ package app.pulse.android.ui.screens.settings
 
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -42,6 +43,8 @@ import app.pulse.android.utils.color
 import app.pulse.android.utils.secondary
 import app.pulse.android.utils.semiBold
 import app.pulse.core.ui.LocalAppearance
+import app.pulse.core.ui.dockBackground
+import app.pulse.core.ui.dockBorder
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 
@@ -204,32 +207,38 @@ fun SettingsEntry(
     isEnabled: Boolean = true,
     usePadding: Boolean = true,
     trailingContent: @Composable (() -> Unit)? = null
-) = Row(
-    horizontalArrangement = Arrangement.spacedBy(16.dp),
-    verticalAlignment = Alignment.CenterVertically,
-    modifier = modifier
-        .clip(RoundedCornerShape(25))
-        .clickable(enabled = isEnabled, onClick = onClick)
-        .alpha(if (isEnabled) 1f else 0.5f)
-        .let { if (usePadding) it.padding(start = 32.dp, end = 16.dp) else it }
-        .padding(vertical = 16.dp)
-        .fillMaxWidth()
 ) {
     val (colorPalette, typography) = LocalAppearance.current
+    val cardShape = RoundedCornerShape(18.dp)
 
-    Column(modifier = Modifier.weight(1f)) {
-        BasicText(
-            text = title,
-            style = typography.xs.semiBold.copy(color = colorPalette.text)
-        )
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(cardShape)
+            .background(colorPalette.dockBackground)
+            .border(1.dp, colorPalette.dockBorder, cardShape)
+            .clickable(enabled = isEnabled, onClick = onClick)
+            .alpha(if (isEnabled) 1f else 0.5f)
+            .let { if (usePadding) it.padding(start = 16.dp, end = 16.dp) else it }
+            .padding(vertical = 16.dp)
+            .fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            BasicText(
+                text = title,
+                style = typography.xs.semiBold.copy(color = colorPalette.text)
+            )
 
-        if (text != null) BasicText(
-            text = text,
-            style = typography.xs.semiBold.secondary
-        )
+            if (text != null) BasicText(
+                text = text,
+                style = typography.xs.semiBold.secondary
+            )
+        }
+
+        trailingContent?.invoke()
     }
-
-    trailingContent?.invoke()
 }
 
 @Composable

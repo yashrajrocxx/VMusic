@@ -56,6 +56,9 @@ import app.pulse.android.utils.secondary
 import app.pulse.android.utils.semiBold
 import app.pulse.compose.routing.RouteHandler
 import app.pulse.core.ui.LocalAppearance
+import app.pulse.core.ui.dockBackground
+import app.pulse.core.ui.dockBorder
+import app.pulse.core.ui.dockSelected
 import coil3.compose.AsyncImage
 
 @Route
@@ -158,7 +161,8 @@ fun SettingsAccountCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp))
-                .background(colorPalette.background1)
+                .background(colorPalette.dockBackground)
+                .border(1.dp, colorPalette.dockBorder, RoundedCornerShape(20.dp))
                 .clickable(onClick = onClick)
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -179,7 +183,8 @@ fun SettingsAccountCard(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(if (isLoggedIn) colorPalette.accent.copy(alpha = 0.15f) else colorPalette.background2),
+                        .background(if (isLoggedIn) colorPalette.accent.copy(alpha = 0.15f) else colorPalette.dockSelected)
+                        .border(1.dp, colorPalette.dockBorder, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
@@ -292,7 +297,8 @@ fun MasterSettingsGroup(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp))
-                .background(colorPalette.background1)
+                .background(colorPalette.dockBackground)
+                .border(1.dp, colorPalette.dockBorder, RoundedCornerShape(20.dp))
         ) {
             content()
         }
@@ -332,7 +338,8 @@ fun SettingsMenuEntry(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(colorPalette.background2),
+                    .background(colorPalette.dockSelected)
+                    .border(1.dp, colorPalette.dockBorder, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Image(

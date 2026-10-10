@@ -84,10 +84,12 @@ import app.pulse.providers.innertube.models.NavigationEndpoint
 import app.pulse.providers.innertube.models.bodies.NextBody
 import app.pulse.providers.innertube.requests.nextPage
 import app.pulse.providers.innertube.requests.relatedPage
+import app.pulse.providers.innertube.requests.discoverPage
 import app.pulse.providers.innertube.requests.trendingFeed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -118,6 +120,7 @@ fun QuickPicks(
     onAlbumClick: (Innertube.AlbumItem) -> Unit,
     onArtistClick: (Innertube.ArtistItem) -> Unit,
     onPlaylistClick: (Innertube.PlaylistItem) -> Unit,
+    onMoodClick: (Innertube.Mood.Item) -> Unit,
 ) {
     val (colorPalette, typography) = LocalAppearance.current
     val binder = LocalPlayerServiceBinder.current
@@ -166,6 +169,14 @@ fun QuickPicks(
     var sectionsBuiltAt by remember { mutableLongStateOf(0L) }
     if (sections == null && HomeCache.inMemorySections != null) {
         sections = HomeCache.inMemorySections
+    }
+
+    // Fresh-install categories shared with the Discover tab: new releases +
+    // moods render on this tab too, fed by the same cached Discover page so
+    // they cost zero extra requests when already fetched.
+    var freshDiscover by persist<Innertube.DiscoverPage?>("home/quickDiscover")
+    if (freshDiscover == null && HomeCache.inMemoryDiscover != null) {
+        freshDiscover = HomeCache.inMemoryDiscover
     }
 
     // ponytail: shared click handler extracted to avoid duplication
@@ -229,6 +240,21 @@ fun QuickPicks(
         HomeCache.saveRelated(context.filesDir, page, null)
         HomeCache.prefetchThumbs(context, null, page)
 
+        // Fresh-install categories in at most one extra request, shared with
+        // the Discover tab (which reuses the same cached page): new-release
+        // albums + moods. Skipped entirely when already cached.
+        if (freshDiscover == null) {
+            val discover = HomeCache.inMemoryDiscover
+                ?: HomeCache.restoreDiscover(context.filesDir)?.getOrNull()
+                ?: Innertube.discoverPage()?.getOrNull()?.also {
+                    HomeCache.saveDiscover(context.filesDir, it)
+                }
+            if (discover != null) {
+                freshDiscover = discover
+                HomeCache.prefetchThumbs(context, discover, null)
+            }
+        }
+
         // Phase 2 runs inside the same fetch (cancellable, joined by
         // pull-to-refresh): sections rooted in the top Hindi seeds merge in
         // when ready, so the fresh feed is full (albums/artists/playlists)
@@ -282,9 +308,18 @@ fun QuickPicks(
             val seen = (gridIds + seedId).toMutableSet()
             val recSongs = mutableListOf<Innertube.SongItem>()
             val seedTitles = mutableListOf<String>()
-            for (s in becauseSeeds) {
-                val items = Innertube.nextPage(NextBody(videoId = s.id))
-                    ?.getOrNull()?.itemsPage?.items.orEmpty()
+            // Seeds fan out concurrently in one wave; the merge below stays in
+            // seed order so the first seed still wins ties.
+            val recLists = kotlinx.coroutines.coroutineScope {
+                becauseSeeds.map { seed ->
+                    async {
+                        Innertube.nextPage(NextBody(videoId = seed.id))
+                            ?.getOrNull()?.itemsPage?.items.orEmpty()
+                    }
+                }.awaitAll()
+            }
+            becauseSeeds.zip(recLists).forEach { (s, items) ->
+                if (recSongs.size >= 9) return@forEach
                 var added = false
                 for (item in items) {
                     if (seen.add(item.key)) {
@@ -294,7 +329,6 @@ fun QuickPicks(
                     }
                 }
                 if (added) s.title.takeIf { it.isNotBlank() }?.let(seedTitles::add)
-                if (recSongs.size >= 9) break
             }
             seen += recSongs.map { it.key }
             val keep = Database.trending(limit = 50, period = 30.days.inWholeMilliseconds).first()
@@ -583,6 +617,71 @@ fun QuickPicks(
                                     showDuration = false,
                                     isPlaying = playing && currentMediaId == song.key
                                 )
+                            }
+                        }
+                    }
+
+                    // Fresh-install categories (no listening history yet): new
+                    // releases + moods from the shared Discover fetch — no
+                    // requests on top of it. Hidden once the feed follows
+                    // the user's own listening.
+                    if (lastSeedId == null) {
+                        freshDiscover?.newReleaseAlbums?.takeIf(List<Innertube.AlbumItem>::isNotEmpty)?.let { albums ->
+                            item(key = "fresh_new_releases") {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    BasicText(
+                                        text = stringResource(R.string.new_released_albums),
+                                        style = typography.m.semiBold,
+                                        modifier = sectionTextModifier
+                                    )
+
+                                    LazyRow(
+                                        contentPadding = endPaddingValues
+                                    ) {
+                                        items(
+                                            items = albums,
+                                            key = Innertube.AlbumItem::key,
+                                            contentType = { "album" }
+                                        ) { album ->
+                                            AlbumItem(
+                                                album = album,
+                                                thumbnailSize = Dimensions.thumbnails.album,
+                                                alternative = true,
+                                                modifier = Modifier.clickable { onAlbumClick(album) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        freshDiscover?.moods?.takeIf(List<Innertube.Mood.Item>::isNotEmpty)?.let { moods ->
+                            item(key = "fresh_moods") {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    BasicText(
+                                        text = stringResource(R.string.moods_and_genres),
+                                        style = typography.m.semiBold,
+                                        modifier = sectionTextModifier
+                                    )
+
+                                    LazyRow(
+                                        contentPadding = endPaddingValues
+                                    ) {
+                                        items(
+                                            items = moods,
+                                            key = { it.endpoint.params ?: it.title },
+                                            contentType = { "mood" }
+                                        ) { mood ->
+                                            MoodItem(
+                                                mood = mood,
+                                                onClick = { onMoodClick(mood) },
+                                                modifier = Modifier
+                                                    .width(170.dp)
+                                                    .padding(horizontal = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

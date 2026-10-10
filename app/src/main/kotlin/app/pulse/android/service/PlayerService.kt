@@ -70,6 +70,7 @@ import app.pulse.android.MainActivity
 import app.pulse.android.R
 import app.pulse.android.playback.CachedStreamUrl
 import app.pulse.android.playback.InnerTubeXPlayer
+import app.pulse.android.playback.InnerTubeXPlayer.PlaybackData
 import app.pulse.android.playback.StreamUrlCache
 import app.pulse.android.playback.withResolvedStream
 import app.pulse.android.models.Event
@@ -137,6 +138,7 @@ import app.pulse.providers.sponsorblock.models.Category
 import app.pulse.providers.sponsorblock.requests.segments
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -164,12 +166,15 @@ import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import kotlinx.coroutines.async
+import java.util.concurrent.ConcurrentHashMap
 import java.io.IOException
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
@@ -193,6 +198,37 @@ private val String.videoId get() = removePrefix("https://youtube.com/watch?v=")
 
 private const val LIKE_ACTION = "app.pulse.android.LIKE"
 private const val LOOP_ACTION = "app.pulse.android.LOOP"
+
+/**
+ * Single-flight stream resolution shared by the tap path, the next-track
+ * preloader and the URL refresher: concurrent requests for one song join a
+ * single network flight instead of each paying a full extraction.
+ */
+private val resolveScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+private val inFlightResolves = ConcurrentHashMap<String, Deferred<Result<PlaybackData>>>()
+
+private fun coalescedPlayback(videoId: String): Deferred<Result<PlaybackData>> =
+    inFlightResolves.getOrPut(videoId) {
+        resolveScope.async {
+            InnerTubeXPlayer.playerResponseForPlayback(videoId = videoId)
+        }.also { deferred ->
+            deferred.invokeOnCompletion {
+                inFlightResolves.remove(videoId, deferred)
+            }
+        }
+    }
+
+private fun StreamUrlCache.putPlayback(videoId: String, playback: PlaybackData): Boolean =
+    put(
+        mediaId = videoId,
+        url = playback.streamUrl,
+        requestHeaders = playback.streamHeaders,
+        clientName = playback.streamClient,
+        expiresInSeconds = playback.streamExpiresInSeconds,
+        requireBoundedRange = playback.requireBoundedRange,
+        rangeChunkSizeBytes = playback.rangeChunkSizeBytes,
+        useRangeChunks = playback.useRangeChunks,
+    )
 
 @kotlin.OptIn(ExperimentalCoroutinesApi::class)
 @Suppress("LargeClass", "TooManyFunctions") // intended in this class: it is a service
@@ -876,11 +912,18 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
         preloadJob?.cancel()
 
         if (!player.hasNextMediaItem()) return
+        val currentId = player.currentMediaItem?.mediaId
+        // Resolve the next two tracks (depth 2): skips land instantly even
+        // twice in a row. Staggered so the nearest is always ready first.
+        val targets = (player.nextMediaItemIndex..player.nextMediaItemIndex + 1)
+            .filter { it in 0 until player.mediaItemCount }
+            .mapNotNull { runCatching { player.getMediaItemAt(it) }.getOrNull() }
+            .filter { !it.isLocal && !it.isRadio && it.mediaId != currentId }
+            .map { it.mediaId.videoId }
+            .distinct()
+            .take(2)
+        if (targets.isEmpty()) return
         val next = player.getMediaItemAt(player.nextMediaItemIndex)
-        if (next.isLocal || next.isRadio) return
-        // Cold start the timeline can still be settling (current index -1), which
-        // makes "next" resolve to the current song skip the duplicate resolve.
-        if (next.mediaId == player.currentMediaItem?.mediaId) return
 
         // Warm Coil's cache with the next song's fullscreen artwork so the
         // boundary doesn't flash a blank thumbnail while it fetches. Explicit
@@ -899,43 +942,37 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
             )
         }
 
-        val videoId = next.mediaId.videoId
-        if (streamUrlCache[videoId] != null) return
+        if (targets.all { streamUrlCache[it] != null }) return
 
         preloadJob = coroutineScope.launch {
-            delay(1_500)
-            try {
-                if (streamUrlCache[videoId] != null) return@launch
-                val playback = InnerTubeXPlayer.playerResponseForPlayback(videoId).getOrNull() ?: return@launch
-                streamUrlCache.put(
-                    mediaId = videoId,
-                    url = playback.streamUrl,
-                    requestHeaders = playback.streamHeaders,
-                    clientName = playback.streamClient,
-                    expiresInSeconds = playback.streamExpiresInSeconds,
-                    requireBoundedRange = playback.requireBoundedRange,
-                    rangeChunkSizeBytes = playback.rangeChunkSizeBytes,
-                    useRangeChunks = playback.useRangeChunks,
-                )
-                clearCrossfadeGuardFor(videoId)
-                runCatching {
-                    Database.insert(
-                        Format(
-                            songId = videoId,
-                            itag = playback.itag,
-                            mimeType = playback.mimeType,
-                            bitrate = playback.bitrate,
-                            loudnessDb = playback.loudnessDb?.toFloat(),
-                            contentLength = playback.contentLength,
-                            url = playback.streamUrl
+            targets.forEachIndexed { index, targetId ->
+                // Nearest first: full wait only for track+1, quick stagger after.
+                delay(if (index == 0) 1_500 else 1_200)
+                if (streamUrlCache[targetId] != null) return@forEachIndexed
+                try {
+                    // Joins the tap path's flight when one is already running.
+                    val playback = coalescedPlayback(targetId).await().getOrNull() ?: return@forEachIndexed
+                    streamUrlCache.putPlayback(targetId, playback)
+                    clearCrossfadeGuardFor(targetId)
+                    runCatching {
+                        Database.insert(
+                            Format(
+                                songId = targetId,
+                                itag = playback.itag,
+                                mimeType = playback.mimeType,
+                                bitrate = playback.bitrate,
+                                loudnessDb = playback.loudnessDb?.toFloat(),
+                                contentLength = playback.contentLength,
+                                url = playback.streamUrl
+                            )
                         )
-                    )
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // A failed preload must never take down playback.
+                    Log.w(TAG, "preload failed", e)
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // A failed preload must never take down playback.
-                Log.w(TAG, "preload failed", e)
             }
         }
     }
@@ -2177,11 +2214,14 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
                 return@Factory dataSpec.withResolvedStream(cachedStream)
             }
 
-            val playbackData = runBlocking(Dispatchers.IO) {
-                InnerTubeXPlayer.playerResponseForPlayback(
-                    videoId = mediaId,
-                )
-            }.getOrElse { failure ->
+            // Resolve + DB lookup concurrently; concurrent taps for one song join a
+            // single network flight, and DB writes leave the critical path.
+            val (playbackResult, mediaItem) = runBlocking(Dispatchers.IO) {
+                val playbackDeferred = async { coalescedPlayback(mediaId).await() }
+                val itemDeferred = async { runCatching { findMediaItem(mediaId) }.getOrNull() }
+                playbackDeferred.await() to itemDeferred.await()
+            }
+            val playbackData = playbackResult.getOrElse { failure ->
                 // Typed auth/restriction failures must survive so the player UI can
                 // offer Google login; everything else keeps the previous behavior.
                 throw when (failure) {
@@ -2190,44 +2230,30 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
                 }
             }
 
-            val streamUrl = playbackData.streamUrl
-            val resolvedSize = playbackData.contentLength
-
-            val mediaItem = runCatching {
-                runBlocking(Dispatchers.IO) { findMediaItem(mediaId) }
-            }.getOrNull()
-
-            transaction {
+            resolveScope.launch {
                 runCatching {
-                    mediaItem?.let(Database::insert)
-                    Database.insert(
-                        Format(
-                            songId = mediaId,
-                            itag = playbackData.itag,
-                            mimeType = playbackData.mimeType,
-                            bitrate = playbackData.bitrate,
-                            loudnessDb = playbackData.loudnessDb?.toFloat(),
-                            contentLength = resolvedSize,
-                            lastModified = null,
-                            url = streamUrl
+                    transaction {
+                        mediaItem?.let(Database::insert)
+                        Database.insert(
+                            Format(
+                                songId = mediaId,
+                                itag = playbackData.itag,
+                                mimeType = playbackData.mimeType,
+                                bitrate = playbackData.bitrate,
+                                loudnessDb = playbackData.loudnessDb?.toFloat(),
+                                contentLength = playbackData.contentLength,
+                                lastModified = null,
+                                url = playbackData.streamUrl
+                            )
                         )
-                    )
+                    }
                 }
             }
 
-            streamUrlCache.put(
-                mediaId = mediaId,
-                url = streamUrl,
-                requestHeaders = playbackData.streamHeaders,
-                clientName = playbackData.streamClient,
-                expiresInSeconds = playbackData.streamExpiresInSeconds,
-                requireBoundedRange = playbackData.requireBoundedRange,
-                rangeChunkSizeBytes = playbackData.rangeChunkSizeBytes,
-                useRangeChunks = playbackData.useRangeChunks,
-            )
+            streamUrlCache.putPlayback(mediaId, playbackData)
 
             val cachedStream = streamUrlCache[mediaId] ?: CachedStreamUrl(
-                url = streamUrl,
+                url = playbackData.streamUrl,
                 requestHeaders = playbackData.streamHeaders,
                 clientName = playbackData.streamClient,
                 requireBoundedRange = playbackData.requireBoundedRange,

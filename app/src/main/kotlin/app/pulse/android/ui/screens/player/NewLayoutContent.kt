@@ -20,7 +20,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -370,19 +369,11 @@ fun NewLayoutContent(
         // Like-on-double-tap lives on the artwork layer only: no button
         // anywhere on this screen sits under a double-tap detector, so a
         // tap can never be swallowed or re-routed by gesture arbitration.
+        // A dedicated tap detector (not combinedClickable: its empty onClick
+        // and press tracking proved unreliable here) — single taps are fully
+        // ignored, so buttons and sheet drags are never disturbed.
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .combinedClickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {},
-                    // Artwork only: while the queue or lyrics overlay is open,
-                    // double-taps belong to that overlay, never to like.
-                    onDoubleClick = {
-                        if (!isShowingLyrics && !isShowingQueue) fireLikeBurst()
-                    }
-                )
+            modifier = Modifier.fillMaxSize()
         ) {
             if (artworkUri != null) {
                 key(artworkUri, isShowingLyrics || isShowingQueue) {
@@ -458,6 +449,19 @@ fun NewLayoutContent(
                         .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
                         .asPaddingValues()
                 )
+                // Double-tap-to-like lives here, above every overlay: bare
+                // artwork taps reach it no matter what sits underneath, while
+                // buttons keep their own handlers. Bottom ~third (controls,
+                // seek, volume) is excluded so taps there never mis-like.
+                .pointerInput(isShowingLyrics, isShowingQueue) {
+                    detectTapGestures(
+                        onDoubleTap = { offset ->
+                            if (!isShowingLyrics && !isShowingQueue &&
+                                offset.y < size.height * 0.62f
+                            ) fireLikeBurst()
+                        }
+                    )
+                }
         ) {
             Box(
                 modifier = Modifier

@@ -137,7 +137,6 @@ import app.pulse.core.ui.Darkness
 import app.pulse.core.ui.Dimensions
 import app.pulse.core.ui.LocalAppearance
 import app.pulse.core.ui.SystemBarAppearance
-import app.pulse.core.ui.amoled
 import app.pulse.core.ui.appearance
 import app.pulse.core.ui.rippleConfiguration
 import app.pulse.core.ui.shimmerTheme
@@ -284,6 +283,11 @@ class MainActivity : ComponentActivity(), MonetColorsChangedListener {
             if (isDark && colorSource == ColorSource.Pink) {
                 colorSource = ColorSource.MaterialYou
             }
+        }
+
+        // One-time migration: legacy PureBlack is hidden from settings, fold it into AMOLED.
+        LaunchedEffect(darkness) {
+            if (darkness == Darkness.PureBlack) darkness = Darkness.AMOLED
         }
 
         LaunchedEffect(app.pulse.android.preferences.DataPreferences.versionCheckPeriod) {
@@ -458,19 +462,11 @@ class MainActivity : ComponentActivity(), MonetColorsChangedListener {
                             )
                         }
 
-                        CompositionLocalProvider(
-                            LocalAppearance provides LocalAppearance.current.let {
-                                if (it.colorPalette.isDark && AppearancePreferences.darkness == Darkness.AMOLED) {
-                                    it.copy(colorPalette = it.colorPalette.amoled())
-                                } else it
-                            }
-                        ) {
-                            Player(
-                                layoutState = playerBottomSheetState,
-                                openQueueTrigger = openQueueTrigger,
-                                modifier = Modifier.align(Alignment.BottomCenter)
-                            )
-                        }
+                        Player(
+                            layoutState = playerBottomSheetState,
+                            openQueueTrigger = openQueueTrigger,
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                        )
 
                         LaunchedEffect(vm.binder?.player?.currentMediaItem) {
                             if (vm.binder?.player?.currentMediaItem?.mediaId?.startsWith("radio:") == true) {

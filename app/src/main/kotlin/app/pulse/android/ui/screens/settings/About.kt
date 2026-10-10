@@ -1,72 +1,39 @@
 package app.pulse.android.ui.screens.settings
 
 import android.Manifest
-import android.app.PendingIntent
-import android.content.Context
-import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.app.NotificationCompat
-import androidx.core.content.FileProvider
-import androidx.core.net.toUri
-import androidx.work.Constraints
-import androidx.work.CoroutineWorker
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
 import app.pulse.android.BuildConfig
 import app.pulse.android.R
 import app.pulse.android.preferences.DataPreferences
-import app.pulse.android.service.ServiceNotifications
+import app.pulse.android.service.findBestApkAsset
+import app.pulse.android.service.getNewerVersion
 import app.pulse.android.ui.components.themed.CircularProgressIndicator
-import app.pulse.android.ui.components.themed.DefaultDialog
-import app.pulse.android.ui.components.themed.SecondaryTextButton
 import app.pulse.android.ui.screens.Route
-
-import app.pulse.android.utils.bold
-import app.pulse.android.utils.center
 import app.pulse.android.utils.hasPermission
-import app.pulse.android.utils.pendingIntent
-import app.pulse.android.utils.semiBold
-import app.pulse.core.data.utils.Version
+import app.pulse.android.utils.toast
 import app.pulse.core.data.utils.version
 import app.pulse.core.ui.LocalAppearance
 import app.pulse.core.ui.utils.isAtLeastAndroid13
 import app.pulse.core.ui.utils.isCompositionLaunched
-import app.pulse.providers.github.GitHub
-import app.pulse.providers.github.models.Release
-import app.pulse.providers.github.requests.releases
-import kotlin.time.Duration
-import kotlin.time.toJavaDuration
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-import java.net.URL
-import app.pulse.compose.routing.RouteHandler
-import app.pulse.android.ui.screens.GlobalRoutes
-import app.pulse.android.ui.components.themed.Scaffold
 
 private val VERSION_NAME = BuildConfig.VERSION_NAME.substringBeforeLast("-")
 private const val REPO_OWNER = "yashrajrocxx"
@@ -175,11 +142,50 @@ fun About() {
 
 
                     SettingsGroup(title = stringResource(R.string.version)) {
+                        var checkingUpdate by rememberSaveable { mutableStateOf(false) }
+                        val updateScope = rememberCoroutineScope()
+
                         SettingsEntry(
                             title = stringResource(R.string.check_new_version),
-                            text = stringResource(R.string.current_version, VERSION_NAME),
+                            text = if (checkingUpdate) stringResource(R.string.checking_for_updates)
+                            else stringResource(R.string.current_version, VERSION_NAME),
                             onClick = {
-                                app.pulse.android.service.VersionCheckWorker.executeOneTime(context.applicationContext)
+                                if (!checkingUpdate) {
+                                    checkingUpdate = true
+                                    updateScope.launch {
+                                        val result = withContext(Dispatchers.IO) {
+                                            runCatching { VERSION_NAME.version.getNewerVersion() }.getOrNull()
+                                        }
+                                        val release = result?.getOrNull()
+                                        when {
+                                            result == null || result.isFailure ->
+                                                context.toast(R.string.error_github)
+
+                                            release != null -> {
+                                                val asset = findBestApkAsset(release.assets)
+                                                DataPreferences.pendingUpdateVersion =
+                                                    release.tag.removePrefix("v")
+                                                DataPreferences.pendingUpdateUrl =
+                                                    asset?.downloadUrl?.toString()
+                                                        ?: release.frontendUrl.toString()
+                                                context.toast(
+                                                    context.getString(
+                                                        R.string.format_new_version_available,
+                                                        release.tag
+                                                    )
+                                                )
+                                            }
+
+                                            else -> context.toast(R.string.up_to_date)
+                                        }
+                                        checkingUpdate = false
+                                    }
+                                }
+                            },
+                            trailingContent = {
+                                if (checkingUpdate) CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         )
 

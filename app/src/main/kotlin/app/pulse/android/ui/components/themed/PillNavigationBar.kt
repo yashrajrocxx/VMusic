@@ -8,6 +8,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -31,6 +32,9 @@ import app.pulse.android.R
 import app.pulse.android.preferences.AppearancePreferences
 import app.pulse.core.ui.Dimensions
 import app.pulse.core.ui.LocalAppearance
+import app.pulse.core.ui.dockBackground
+import app.pulse.core.ui.dockBorder
+import app.pulse.core.ui.dockSelected
 import androidx.compose.foundation.text.BasicText
 import app.pulse.android.utils.semiBold
 import androidx.compose.ui.unit.sp
@@ -61,7 +65,7 @@ internal fun PillNavigationItem(
     )
 
     val backgroundColor by animateColorAsState(
-        targetValue = if (isSelected) colorPalette.background2 else colorPalette.background1,
+        targetValue = if (isSelected) colorPalette.dockSelected else colorPalette.dockBackground,
         label = "backgroundColor"
     )
     val iconColor by animateColorAsState(
@@ -71,7 +75,7 @@ internal fun PillNavigationItem(
 
     val compact = AppearancePreferences.compactDock
     val tabWidth = if (compact) 46.dp else 72.dp
-    val tabIconSize = if (compact) 22.dp else 22.dp
+    val tabIconSize = 22.dp
 
     Column(
         modifier = Modifier
@@ -142,7 +146,8 @@ fun FloatingSearchButton(
                 scaleX = scale
                 scaleY = scale
             }
-            .background(colorPalette.background1, CircleShape)
+            .background(colorPalette.dockBackground, CircleShape)
+            .border(1.dp, colorPalette.dockBorder, CircleShape)
             .clip(CircleShape)
             .clickable(
                 interactionSource = interactionSource,
@@ -183,7 +188,8 @@ fun MorphingNavigationBar(
 
     Box(
         modifier = modifier
-            .background(colorPalette.background1, CircleShape)
+            .background(colorPalette.dockBackground, CircleShape)
+            .border(1.dp, colorPalette.dockBorder, CircleShape)
             .clip(CircleShape)
             .clickable(
                 enabled = progress > 0.8f,
@@ -271,7 +277,8 @@ fun RadioCircleButton(
                 scaleX = scale
                 scaleY = scale
             }
-            .background(colorPalette.background1, CircleShape)
+            .background(colorPalette.dockBackground, CircleShape)
+            .border(1.dp, colorPalette.dockBorder, CircleShape)
             .clip(CircleShape)
             .clickable(
                 interactionSource = interactionSource,

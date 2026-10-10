@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -80,6 +81,9 @@ import app.pulse.android.utils.shouldBePlaying
 import app.pulse.android.utils.thumbnail
 import app.pulse.core.ui.Dimensions
 import app.pulse.core.ui.LocalAppearance
+import app.pulse.core.ui.dockBackground
+import app.pulse.core.ui.dockBorder
+import app.pulse.core.ui.dockSelected
 import app.pulse.android.models.ui.UiMedia
 import coil3.compose.AsyncImage
 
@@ -186,7 +190,8 @@ fun MorphingMiniPlayer(
     BoxWithConstraints(
         modifier = modifier
             .clip(CircleShape)
-            .background(colorPalette.background1)
+            .background(colorPalette.dockBackground)
+            .border(1.dp, colorPalette.dockBorder, CircleShape)
             .pointerInput(activeMediaItem, isRadio) {
                 val slop = viewConfiguration.touchSlop
                 val threshold = (slop * 1.5f).coerceAtLeast(36f)
@@ -287,7 +292,7 @@ fun MorphingMiniPlayer(
                         modifier = Modifier
                             .fillMaxSize()
                             .clip(CircleShape)
-                            .background(colorPalette.background0)
+                            .background(colorPalette.dockSelected)
                             .graphicsLayer {
                                 rotationZ = -8f * pulse
                             }
@@ -297,7 +302,7 @@ fun MorphingMiniPlayer(
                         modifier = Modifier
                             .fillMaxSize()
                             .clip(CircleShape)
-                            .background(colorPalette.background0)
+                            .background(colorPalette.dockSelected)
                             .graphicsLayer {
                                 rotationZ = -8f * pulse
                             },

@@ -20,8 +20,7 @@ object AppearancePreferences : GlobalPreferencesHolder() {
     var darkness by enum(
         when (OldPreferences.oldColorPaletteName) {
             ColorPaletteName.Default, ColorPaletteName.Dynamic, ColorPaletteName.MaterialYou -> Darkness.Normal
-            ColorPaletteName.PureBlack -> Darkness.PureBlack
-            ColorPaletteName.AMOLED -> Darkness.AMOLED
+            ColorPaletteName.PureBlack, ColorPaletteName.AMOLED -> Darkness.AMOLED
         }
     )
     val isShowingThumbnailInLockscreenProperty = boolean(true)

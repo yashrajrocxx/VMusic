@@ -263,10 +263,19 @@ fun colorPaletteOf(
 
 inline val ColorPalette.isPureBlack get() = background0 == Color.Black
 inline val ColorPalette.collapsedPlayerProgressBar
-    get() = if (isPureBlack) defaultDarkPalette.background0 else background2
+    get() = if (isPureBlack) Color(0xFF2A2A2A) else background2
 inline val ColorPalette.favoritesIcon get() = if (isDefault) red else accent
 inline val ColorPalette.shimmer get() = if (isDefault) Color(0xff838383) else accent
 inline val ColorPalette.surface get() = if (isPureBlack) Color(0xff272727) else background2
+
+// Dock surfaces: on pure-black AMOLED the base backgrounds are all Color.Black,
+// so floating pills need a slightly elevated surface + hairline border to stay visible.
+inline val ColorPalette.dockBackground
+    get() = if (isPureBlack) Color(0xFF111111) else background1
+inline val ColorPalette.dockSelected
+    get() = if (isPureBlack) Color(0xFF2A2A2A) else background2
+inline val ColorPalette.dockBorder
+    get() = if (isPureBlack) Color.White.copy(alpha = 0.09f) else Color.Transparent
 
 @Suppress("UnusedReceiverParameter")
 inline val ColorPalette.overlay get() = Color.Black.copy(alpha = 0.75f)
