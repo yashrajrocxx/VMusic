@@ -200,6 +200,10 @@
             tools:ignore="Instantiatable" />
 
         <receiver
+            android:name=".listentogether.TogetherActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name="androidx.media3.session.MediaButtonReceiver"
             android:exported="true">
 

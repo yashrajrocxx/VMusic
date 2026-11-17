@@ -159,6 +159,15 @@ object ServiceNotifications {
         singleNotification = true
     )
 
+    val together by channel(
+        name = "together",
+        description = R.string.together_notifications,
+        importance = NotificationManagerCompat.IMPORTANCE_HIGH,
+        singleNotification = false
+    ) {
+        setLightsEnabled(true).setVibrationEnabled(true)
+    }
+
     val version by channel(
         description = R.string.version_check,
         importance = NotificationManagerCompat.IMPORTANCE_HIGH,

@@ -35,6 +35,7 @@ import app.pulse.android.ui.components.themed.SecondaryTextButton
 import app.pulse.android.ui.items.SongItem
 import app.pulse.android.utils.align
 import app.pulse.android.utils.asMediaItem
+import app.pulse.android.utils.addNext
 import app.pulse.android.utils.forcePlay
 import app.pulse.android.utils.medium
 import app.pulse.android.utils.playingSong
@@ -103,6 +104,7 @@ fun LocalSongSearch(
                         .animateItem(),
                     song = song,
                     thumbnailSize = Dimensions.thumbnails.song,
+                    onPlayNext = { binder?.player?.addNext(song.asMediaItem) },
                     // TODO: refactor out a simple 'song list' in order to fix this kind of repetition
                     isPlaying = playing && currentMediaId == song.id
                 )

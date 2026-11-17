@@ -16,7 +16,9 @@ object TTMLParser {
         val words: List<ParsedWord>,
         val agent: String? = null,
         val isBackground: Boolean = false,
-        val backgroundLines: List<ParsedLine> = emptyList()
+        val backgroundLines: List<ParsedLine> = emptyList(),
+        /** Provider-supplied romanization (`x-roman` span), when present. */
+        val romanizedText: String? = null
     )
     
     data class ParsedWord(
@@ -161,6 +163,7 @@ object TTMLParser {
         
         val agent = getAttr(p, "agent").ifEmpty { divAgent }
         val isPBackground = getAttr(p, "role") == "x-bg"
+        var romanizedText: String? = null
         
         var child = p.firstChild
         while (child != null) {
@@ -173,7 +176,8 @@ object TTMLParser {
                             if (isPBackground) parseWordSpan(child, offset, spanInfos, child)
                             else parseBackgroundSpan(child, startTime, offset)?.let { backgroundLines.add(it) }
                         }
-                        "x-translation", "x-roman" -> {}
+                        "x-roman" -> romanizedText = child.textContent?.trim()?.takeIf { it.isNotEmpty() }
+                        "x-translation" -> {}
                         else -> parseWordSpan(child, offset, spanInfos, child)
                     }
                 }
@@ -190,10 +194,24 @@ object TTMLParser {
                     text = backgroundLines.joinToString(" ") { it.text },
                     startTime = backgroundLines.minOf { it.startTime },
                     words = backgroundLines.flatMap { it.words },
-                    isBackground = true
+                    isBackground = true,
+                    romanizedText = backgroundLines
+                        .mapNotNull { it.romanizedText }
+                        .joinToString(" ")
+                        .takeIf { it.isNotBlank() }
                 ))
             } else emptyList()
-            lines.add(ParsedLine(lineText, startTime, words, agent, isPBackground, bgLines))
+            lines.add(
+                ParsedLine(
+                    text = lineText,
+                    startTime = startTime,
+                    words = words,
+                    agent = agent,
+                    isBackground = isPBackground,
+                    backgroundLines = bgLines,
+                    romanizedText = romanizedText
+                )
+            )
         } else if (backgroundLines.isNotEmpty()) {
             lines.add(ParsedLine(
                 text = backgroundLines.joinToString(" ") { it.text },
@@ -220,6 +238,7 @@ object TTMLParser {
         val begin = timingAttr(span, "begin")
         val start = if (begin.isNotEmpty()) parseTime(begin) + offset else parentStart
         val spanInfos = mutableListOf<SpanInfo>()
+        var romanizedText: String? = null
         
         var child = span.firstChild
         var hasSpans = false
@@ -229,7 +248,12 @@ object TTMLParser {
                 if (name == "span") {
                     hasSpans = true
                     val role = getAttr(child, "role")
-                    if (role != "x-translation" && role != "x-roman") parseWordSpan(child, offset, spanInfos, child)
+                    when (role) {
+                        "x-roman" -> romanizedText =
+                            child.textContent?.trim()?.takeIf { it.isNotEmpty() }
+                        "x-translation" -> {}
+                        else -> parseWordSpan(child, offset, spanInfos, child)
+                    }
                 }
             }
             child = child.nextSibling
@@ -242,7 +266,13 @@ object TTMLParser {
         
         val words = mergeSpansIntoWords(spanInfos)
         val text = if (words.isEmpty()) getDirectText(span).trim() else buildLineText(words)
-        return ParsedLine(text, start, words, isBackground = true)
+        return ParsedLine(
+            text = text,
+            startTime = start,
+            words = words,
+            isBackground = true,
+            romanizedText = romanizedText
+        )
     }
 
     private fun getDirectText(el: Element): String {

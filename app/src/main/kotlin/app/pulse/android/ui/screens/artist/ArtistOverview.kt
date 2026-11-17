@@ -46,6 +46,7 @@ import app.pulse.android.ui.items.AlbumItemPlaceholder
 import app.pulse.android.ui.items.SongItem
 import app.pulse.android.ui.items.SongItemPlaceholder
 import app.pulse.android.utils.asMediaItem
+import app.pulse.android.utils.addNext
 import app.pulse.android.utils.forcePlay
 import app.pulse.android.utils.medium
 import app.pulse.android.utils.playingSong
@@ -175,6 +176,7 @@ fun ArtistOverview(
                                     }
                                 )
                                 .padding(endPaddingValues),
+                            onPlayNext = { binder?.player?.addNext(song.asMediaItem) },
                             isPlaying = playing && currentMediaId == song.key
                         )
                     }

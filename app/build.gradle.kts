@@ -180,6 +180,7 @@ dependencies {
     implementation(libs.compose.foundation)
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.util)
+    implementation("androidx.compose.ui:ui-text")
     implementation(libs.compose.shimmer)
     implementation(libs.compose.lottie)
     implementation(libs.compose.material3)
@@ -205,6 +206,8 @@ dependencies {
     implementation(libs.workmanager)
     implementation(libs.workmanager.ktx)
 
+    implementation(libs.lifecycle.process)
+
     implementation(libs.credentials)
     implementation(libs.credentials.play)
 
@@ -226,6 +229,7 @@ dependencies {
     implementation(libs.ktor.serialization.json)
 
     implementation(projects.providers.github)
+    implementation(projects.providers.listenTogether)
     implementation(projects.providers.innertube)
     implementation(projects.providers.kugou)
     implementation(projects.providers.lrclib)

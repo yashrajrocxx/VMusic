@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -109,8 +110,7 @@ fun SettingsScreen(
                 title = stringResource(R.string.database),
                 description = stringResource(R.string.database_description),
                 icon = R.drawable.server,
-                onClick = { databaseSettingsRoute.global() },
-                showDivider = true
+                onClick = { databaseSettingsRoute.global() }
             )
         }
 
@@ -126,8 +126,7 @@ fun SettingsScreen(
                     title = stringResource(R.string.logs),
                     description = stringResource(R.string.logs_description),
                     icon = R.drawable.bug_outline,
-                    onClick = { logsRoute.global() },
-                    showDivider = true
+                    onClick = { logsRoute.global() }
                 )
             }
         }
@@ -228,10 +227,10 @@ fun MasterSettingsCategoryScreen(
     title: String,
     description: String? = null,
     onBackClick: (() -> Unit)? = null,
+    scrollState: ScrollState = rememberScrollState(),
     content: @Composable ColumnScope.() -> Unit
 ) {
     val (colorPalette, typography) = LocalAppearance.current
-    val scrollState = rememberScrollState()
 
     Column(
         modifier = Modifier
@@ -283,27 +282,7 @@ fun MasterSettingsCategoryScreen(
 fun MasterSettingsGroup(
     title: String,
     content: @Composable ColumnScope.() -> Unit
-) {
-    val (colorPalette, typography) = LocalAppearance.current
-
-    Column(modifier = Modifier.padding(vertical = 8.dp)) {
-        BasicText(
-            text = title,
-            style = typography.xs.semiBold.copy(color = colorPalette.accent),
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .background(colorPalette.dockBackground)
-                .border(1.dp, colorPalette.dockBorder, RoundedCornerShape(20.dp))
-        ) {
-            content()
-        }
-    }
-}
+) = SettingsGroup(title = title, content = content)
 
 @Composable
 fun SettingsMenuEntry(
@@ -311,66 +290,11 @@ fun SettingsMenuEntry(
     description: String,
     @DrawableRes icon: Int,
     onClick: () -> Unit,
-    showDivider: Boolean = false,
-) {
-    val (colorPalette, typography) = LocalAppearance.current
-
-    Column {
-        if (showDivider) {
-            Spacer(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(0.5.dp)
-                    .padding(horizontal = 16.dp)
-                    .background(colorPalette.textDisabled.copy(alpha = 0.12f))
-            )
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(colorPalette.dockSelected)
-                    .border(1.dp, colorPalette.dockBorder, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Image(
-                    painter = painterResource(icon),
-                    contentDescription = null,
-                    colorFilter = ColorFilter.tint(colorPalette.text),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Column(modifier = Modifier.weight(1f)) {
-                BasicText(
-                    text = title,
-                    style = typography.m.semiBold.copy(color = colorPalette.text)
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                BasicText(
-                    text = description,
-                    style = typography.xs.secondary,
-                    modifier = Modifier.alpha(0.75f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Image(
-                painter = painterResource(R.drawable.chevron_forward),
-                contentDescription = null,
-                colorFilter = ColorFilter.tint(colorPalette.textSecondary.copy(alpha = 0.6f)),
-                modifier = Modifier.size(16.dp)
-            )
-        }
-    }
-}
+    showDivider: Boolean = false
+) = SettingsEntry(
+    title = title,
+    text = description,
+    icon = icon,
+    onClick = onClick,
+    showDivider = showDivider
+)

@@ -140,6 +140,9 @@ fun rememberMiniPlayerState(): MiniPlayerState {
     val onClearAll: () -> Unit = remember(binder) {
         {
             userCleared = true
+            // Capture the room's playhead before the queue disappears so the
+            // host's Listen Together room pauses instead of going stale.
+            app.pulse.android.listentogether.ListenTogetherCoordinator.onLocalPlaybackEnding()
             binder?.stopRadio()
             binder?.player?.clearMediaItems()
         }

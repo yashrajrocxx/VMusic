@@ -11,6 +11,7 @@ media3 = "1.10.0"
 ktor = "3.4.2"
 detekt = "1.23.8"
 workmanager = "2.11.2"
+lifecycle = "2.8.7"
 credentials = "1.5.0"
 coil = "3.4.0"
 cloudy = "0.7.1"
@@ -75,6 +76,7 @@ media = { module = "androidx.media:media", version = "1.7.1" }
 
 workmanager = { module = "androidx.work:work-runtime", version.ref = "workmanager" }
 workmanager_ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "workmanager" }
+lifecycle_process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "lifecycle" }
 
 credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
 credentials_play = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }

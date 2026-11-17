@@ -160,6 +160,13 @@ fun AppearanceSettings() {
             )
 
             SwitchSettingsEntry(
+                title = stringResource(R.string.romanize_lyrics),
+                text = stringResource(R.string.romanize_lyrics_description),
+                isChecked = PlayerPreferences.romanizeLyrics,
+                onCheckedChange = { PlayerPreferences.romanizeLyrics = it }
+            )
+
+            SwitchSettingsEntry(
                 title = stringResource(R.string.lyrics_show_system_bars),
                 text = stringResource(R.string.lyrics_show_system_bars_description),
                 isChecked = PlayerPreferences.lyricsShowSystemBars,
@@ -181,6 +188,12 @@ fun AppearanceSettings() {
             )
         }
         SettingsGroup(title = stringResource(R.string.songs)) {
+            SwitchSettingsEntry(
+                title = stringResource(R.string.swipe_to_play_next),
+                text = stringResource(R.string.swipe_to_play_next_description),
+                isChecked = swipeToPlayNext,
+                onCheckedChange = { swipeToPlayNext = it }
+            )
             SwitchSettingsEntry(
                 title = stringResource(R.string.swipe_to_hide_song),
                 text = stringResource(R.string.swipe_to_hide_song_description),

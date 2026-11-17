@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.pulse.android.utils.drawCircle
 import app.pulse.core.ui.LocalAppearance
+import app.pulse.core.ui.dockSelected
 
 @Composable
 fun Switch(
@@ -33,7 +34,7 @@ fun Switch(
         transitionSpec = { spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMedium) },
         label = ""
     ) {
-        if (it) colorPalette.accent else colorPalette.background1
+        if (it) colorPalette.accent else colorPalette.dockSelected
     }
 
     val color by transition.animateColor(

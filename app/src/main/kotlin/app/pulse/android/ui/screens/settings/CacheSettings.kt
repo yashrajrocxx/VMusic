@@ -26,9 +26,6 @@ import app.pulse.android.ui.components.themed.SecondaryTextButton
 import app.pulse.android.ui.screens.Route
 import app.pulse.core.data.enums.ExoPlayerDiskCacheSize
 import coil3.imageLoader
-import app.pulse.compose.routing.RouteHandler
-import app.pulse.android.ui.screens.GlobalRoutes
-import app.pulse.android.ui.components.themed.Scaffold
 
 @OptIn(UnstableApi::class)
 @Route
@@ -81,7 +78,7 @@ fun CacheSettings() {
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(vertical = 12.dp)
-                                        .padding(start = 32.dp, end = 16.dp)
+                                        .padding(start = 16.dp, end = 16.dp)
                                 )
                                 EnumValueSelectorSettingsEntry(
                                     title = stringResource(R.string.max_size),
@@ -118,7 +115,7 @@ fun CacheSettings() {
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(vertical = 12.dp)
-                                            .padding(start = 32.dp, end = 16.dp)
+                                            .padding(start = 16.dp, end = 16.dp)
                                     )
                                 }
                                 EnumValueSelectorSettingsEntry(

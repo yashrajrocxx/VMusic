@@ -21,5 +21,8 @@ data class Lyrics(
     @PrimaryKey val songId: String,
     val fixed: String?,
     val synced: String?,
-    val startTime: Long? = null
+    val startTime: Long? = null,
+    /** Latin-script variants, populated when the provider or transliterator can produce them. */
+    val fixedRomanized: String? = null,
+    val syncedRomanized: String? = null
 )

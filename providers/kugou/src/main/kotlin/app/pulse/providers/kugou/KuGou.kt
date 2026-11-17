@@ -8,6 +8,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.BrowserUserAgent
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
@@ -43,6 +44,12 @@ object KuGou {
             install(ContentEncoding) {
                 gzip()
                 deflate()
+            }
+
+            install(HttpTimeout) {
+                requestTimeoutMillis = 8_000
+                connectTimeoutMillis = 5_000
+                socketTimeoutMillis = 8_000
             }
 
             defaultRequest {

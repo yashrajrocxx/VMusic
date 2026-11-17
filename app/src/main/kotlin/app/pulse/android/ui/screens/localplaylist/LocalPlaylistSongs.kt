@@ -59,6 +59,7 @@ import app.pulse.android.utils.PlaylistDownloadIcon
 import app.pulse.android.utils.asMediaItem
 import app.pulse.android.utils.completed
 import app.pulse.android.utils.enqueue
+import app.pulse.android.utils.addNext
 import app.pulse.android.utils.forcePlayAtIndex
 import app.pulse.android.utils.forcePlayFromBeginning
 import app.pulse.android.utils.launchYouTubeMusic
@@ -305,6 +306,7 @@ fun LocalPlaylistSongs(
                             .background(colorPalette.background0),
                         song = song,
                         thumbnailSize = Dimensions.thumbnails.song,
+                        onPlayNext = { binder?.player?.addNext(song.asMediaItem) },
                         trailingContent = {
                             ReorderHandle(
                                 reorderingState = reorderingState,

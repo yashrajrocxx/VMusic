@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
@@ -39,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -46,10 +49,12 @@ import app.pulse.android.R
 import app.pulse.android.utils.center
 import app.pulse.android.utils.drawCircle
 import app.pulse.android.utils.medium
+import app.pulse.android.utils.secondary
 import app.pulse.android.utils.semiBold
 import app.pulse.core.ui.LocalAppearance
 import app.pulse.core.ui.utils.roundedShape
 import kotlinx.collections.immutable.ImmutableList
+import java.util.Locale
 import kotlinx.coroutines.delay
 
 @Composable
@@ -420,5 +425,128 @@ fun SliderDialog(
                 modifier = Modifier
             )
         }
+    }
+}
+
+/** Compact, app-themed hour/minute picker used for the automatic backup time. */
+@Composable
+fun TimePickerDialog(
+    initialHour: Int,
+    initialMinute: Int,
+    onDismiss: () -> Unit,
+    onAccept: (hour: Int, minute: Int) -> Unit,
+    modifier: Modifier = Modifier,
+    cancelText: String = stringResource(R.string.cancel),
+    doneText: String = stringResource(R.string.done),
+    onCancel: () -> Unit = {}
+) = DefaultDialog(
+    onDismiss = onDismiss,
+    modifier = modifier
+) {
+    val (colorPalette, typography) = LocalAppearance.current
+
+    var hourText by rememberSaveable(initialHour) {
+        mutableStateOf(String.format(Locale.ROOT, "%02d", initialHour.coerceIn(0, 23)))
+    }
+    var minuteText by rememberSaveable(initialMinute) {
+        mutableStateOf(String.format(Locale.ROOT, "%02d", initialMinute.coerceIn(0, 59)))
+    }
+
+    val hour = hourText.toIntOrNull()?.takeIf { it in 0..23 }
+    val minute = minuteText.toIntOrNull()?.takeIf { it in 0..59 }
+    val isValid = hour != null && minute != null
+
+    BasicText(
+        text = stringResource(R.string.backup_time_dialog_title),
+        style = typography.s.semiBold,
+        modifier = Modifier.padding(vertical = 8.dp)
+    )
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(vertical = 8.dp)
+    ) {
+        TimeValueField(
+            value = hourText,
+            label = stringResource(R.string.hours),
+            onValueChange = { hourText = it.filter(Char::isDigit).take(2) }
+        )
+
+        BasicText(
+            text = ":",
+            style = typography.l.semiBold
+        )
+
+        TimeValueField(
+            value = minuteText,
+            label = stringResource(R.string.minutes),
+            onValueChange = { minuteText = it.filter(Char::isDigit).take(2) }
+        )
+    }
+
+    if (!isValid) BasicText(
+        text = stringResource(R.string.backup_time_invalid),
+        style = typography.xxs.semiBold.copy(color = colorPalette.red),
+        modifier = Modifier.padding(vertical = 4.dp)
+    )
+
+    Row(
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        DialogTextButton(
+            text = cancelText,
+            onClick = {
+                onCancel()
+                onDismiss()
+            }
+        )
+
+        DialogTextButton(
+            text = doneText,
+            primary = true,
+            enabled = isValid,
+            onClick = {
+                if (hour != null && minute != null) {
+                    onDismiss()
+                    onAccept(hour, minute)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun RowScope.TimeValueField(
+    value: String,
+    label: String,
+    onValueChange: (String) -> Unit
+) {
+    val (colorPalette, typography) = LocalAppearance.current
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        TextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = typography.l.semiBold.center,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Next
+            ),
+            modifier = Modifier
+                .width(76.dp)
+                .background(colorPalette.background2, 12.dp.roundedShape)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        )
+
+        BasicText(
+            text = label,
+            style = typography.xxs.secondary
+        )
     }
 }

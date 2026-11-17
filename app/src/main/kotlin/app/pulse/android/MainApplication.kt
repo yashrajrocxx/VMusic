@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.os.StrictMode
+import android.os.StrictMode.ThreadPolicy
 import android.os.StrictMode.VmPolicy
 import android.provider.MediaStore
 import android.util.Log
@@ -99,6 +100,7 @@ import app.pulse.android.ui.components.BottomSheetMenu
 import app.pulse.android.ui.components.BottomSheetState
 import app.pulse.android.ui.components.rememberBottomSheetState
 import app.pulse.android.ui.components.themed.LinearProgressIndicator
+import app.pulse.android.ui.screens.together.TogetherApprovalOverlay
 import app.pulse.android.ui.components.themed.LocalDockHiddenCount
 import app.pulse.android.ui.components.themed.LocalNavigationState
 import app.pulse.android.ui.components.themed.LocalRadioAction
@@ -193,7 +195,10 @@ class MainActivity : ComponentActivity(), MonetColorsChangedListener {
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            if (service is PlayerService.Binder) vm.binder = service
+            if (service is PlayerService.Binder) {
+                vm.binder = service
+                app.pulse.android.listentogether.ListenTogetherCoordinator.bind(service)
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -477,6 +482,8 @@ class MainActivity : ComponentActivity(), MonetColorsChangedListener {
                         }
 
                         BottomSheetMenu()
+
+                        TogetherApprovalOverlay()
                     }
                 }
             }
@@ -703,9 +710,23 @@ class MainApplication : Application(), SingletonImageLoader.Factory, Configurati
                     .penaltyDeath()
                     .build()
             )
+            // Catch disk/network on the main thread in QA (log only, never
+            // crash: release builds don't set any policy).
+            StrictMode.setThreadPolicy(
+                ThreadPolicy.Builder()
+                    .detectDiskReads()
+                    .detectDiskWrites()
+                    .detectNetwork()
+                    .penaltyLog()
+                    .build()
+            )
         }
         Dependencies.init(this)
         app.pulse.android.playback.InnerTubeXPlayer.initialize(this)
+        // Listen Together initializes lazily on first Together screen open
+        // (bind -> ensureInitialized), not at every cold start: the socket,
+        // event loop and session restore would otherwise contend with the
+        // home feed and stream-pipeline warmup for users who never open it.
         app.pulse.providers.innertube.Innertube.cookieProvider = {
             if (app.pulse.android.preferences.AccountPreferences.isLoggedIn && app.pulse.android.preferences.AccountPreferences.useLoginForBrowse) {
                 app.pulse.android.preferences.AccountPreferences.innerTubeCookie
@@ -729,6 +750,11 @@ class MainApplication : Application(), SingletonImageLoader.Factory, Configurati
             app.pulse.android.ui.screens.home.HomeCache.initFromDisk(filesDir)
             MonetCompat.enablePaletteCompat()
             with(ServiceNotifications) { createAll() }
+            // Keep the user's automatic backup schedule alive across restarts
+            // without resetting the interval on every launch.
+            runCatching {
+                app.pulse.android.backup.AutoBackupScheduler.ensure(this@MainApplication)
+            }
             // Warm the stream pipeline (player config, cipher service, TLS)
             // after startup settles so the first tap-to-play doesn't pay the
             // whole cold cost. Delayed to avoid contending with the home feed.

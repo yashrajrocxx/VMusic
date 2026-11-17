@@ -21,7 +21,7 @@ val clean by tasks.registering(Delete::class) {
 
 allprojects {
     group = "com.dexy.vmusic.app"
-    version = "1.2.1"
+    version = "1.2.2"
 
     apply(plugin = "io.gitlab.arturbosch.detekt")
 

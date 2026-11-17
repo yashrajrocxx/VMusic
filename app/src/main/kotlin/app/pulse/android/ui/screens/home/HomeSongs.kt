@@ -78,6 +78,7 @@ import app.pulse.android.ui.components.themed.TextField
 import app.pulse.android.ui.items.SongItem
 import app.pulse.android.ui.modifiers.swipeToClose
 import app.pulse.android.ui.screens.Route
+import app.pulse.android.utils.addNext
 import app.pulse.android.utils.asMediaItem
 import app.pulse.android.utils.center
 import app.pulse.android.utils.color
@@ -332,7 +333,7 @@ fun HomeSongs(
                         .animateItem()
                         .let {
                             if (AppearancePreferences.swipeToHideSong) it.swipeToClose(
-                                key = filteredItems,
+                                key = song.id,
                                 requireUnconsumed = true
                             ) { animationJob ->
                                 if (AppearancePreferences.swipeToHideSongConfirm)
@@ -346,6 +347,7 @@ fun HomeSongs(
                         },
                     song = song,
                     thumbnailSize = Dimensions.thumbnails.song,
+                    onPlayNext = { binder?.player?.addNext(song.asMediaItem) },
                     onThumbnailContent = if (sortBy == SongSortBy.PlayTime) {
                         {
                             BasicText(

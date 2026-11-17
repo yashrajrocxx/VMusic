@@ -30,6 +30,16 @@ object DataPreferences : GlobalPreferencesHolder() {
     var pendingUpdateVersion by string("")
     var pendingUpdateUrl by string("")
 
+    var autoBackupEnabled by boolean(false)
+    var autoBackupFrequency by enum(AutoBackupFrequency.Daily)
+    var autoBackupHour by int(3)
+    var autoBackupMinute by int(0)
+    var autoBackupTreeUri by string("")
+    var autoBackupLastRun by long(0L)
+    var autoBackupLastSuccess by boolean(false)
+    var autoBackupLastError by string("")
+    var autoBackupScheduleSignature by string("")
+
     enum class TopListPeriod(
         val displayName: @Composable () -> String,
         val duration: Duration? = null
@@ -44,6 +54,14 @@ object DataPreferences : GlobalPreferencesHolder() {
     enum class QuickPicksSource(val displayName: @Composable () -> String) {
         Trending(displayName = { stringResource(R.string.trending) }),
         LastInteraction(displayName = { stringResource(R.string.last_interaction) })
+    }
+
+    enum class AutoBackupFrequency(
+        val displayName: @Composable () -> String,
+        val days: Int
+    ) {
+        Daily(displayName = { stringResource(R.string.daily) }, days = 1),
+        Weekly(displayName = { stringResource(R.string.weekly) }, days = 7)
     }
 
     @Suppress("unused")

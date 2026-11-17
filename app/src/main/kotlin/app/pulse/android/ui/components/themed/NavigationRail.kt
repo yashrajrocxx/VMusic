@@ -280,19 +280,23 @@ inline fun NavigationRail(
                 else Dimensions.navigationRail.width
             )
         ) {
+            // Tabs are addressed by KEY, not positional index — dock order can
+            // differ from key order (e.g. Together=10 before Settings=9).
             val transition = updateTransition(targetState = tabIndex, label = null)
 
-            tabs.fastForEachIndexed { index, tab ->
+            tabs.fastForEachIndexed { _, tab ->
+                val isTabSelected = tab.key == tabIndex.toString()
+
                 AnimatedVisibility(
-                    visible = tabIndex == index || tab.key !in hiddenTabs,
+                    visible = isTabSelected || tab.key !in hiddenTabs,
                     label = ""
                 ) {
                     val dothAlpha by transition.animateFloat(label = "") {
-                        if (it == index) 1f else 0f
+                        if (it.toString() == tab.key) 1f else 0f
                     }
 
                     val textColor by transition.animateColor(label = "") {
-                        if (it == index) colorPalette.text else colorPalette.textDisabled
+                        if (it.toString() == tab.key) colorPalette.text else colorPalette.textDisabled
                     }
 
                     val iconContent: @Composable () -> Unit = {
@@ -342,7 +346,7 @@ inline fun NavigationRail(
                             scaleY = pressScale
                         }
                         .combinedClickable(
-                            onClick = { onTabIndexChange(index) },
+                            onClick = { onTabIndexChange(tab.key.toInt()) },
                             onLongClick = { editing = true },
                             interactionSource = interactionSource,
                             indication = null

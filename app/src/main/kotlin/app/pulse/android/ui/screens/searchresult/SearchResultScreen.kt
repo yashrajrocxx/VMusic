@@ -50,6 +50,7 @@ import app.pulse.android.ui.screens.albumRoute
 import app.pulse.android.ui.screens.artistRoute
 import app.pulse.android.ui.screens.playlistRoute
 import app.pulse.android.utils.asMediaItem
+import app.pulse.android.utils.addNext
 import app.pulse.android.utils.forcePlay
 import app.pulse.android.utils.medium
 import app.pulse.android.utils.playingSong
@@ -199,6 +200,7 @@ fun SearchResultScreen(query: String, onSearchAgain: () -> Unit) {
                                             binder?.setupRadio(song.info?.endpoint)
                                         }
                                     ),
+                                    onPlayNext = { binder?.player?.addNext(song.asMediaItem) },
                                     isPlaying = playing && currentMediaId == song.key
                                 )
                             },

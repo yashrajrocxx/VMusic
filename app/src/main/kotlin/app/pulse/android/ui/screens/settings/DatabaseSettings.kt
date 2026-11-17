@@ -5,24 +5,32 @@ import android.content.ActivityNotFoundException
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import app.pulse.android.Database
 import app.pulse.android.R
+import app.pulse.android.backup.AutoBackupManager
+import app.pulse.android.backup.AutoBackupScheduler
 import app.pulse.android.backup.BackupProtocol.BackupKind
 import app.pulse.android.backup.PulseBackup
 import app.pulse.android.preferences.DataPreferences
 import app.pulse.android.query
 import app.pulse.android.transaction
+import app.pulse.android.ui.components.themed.CircularProgressIndicator
 import app.pulse.android.ui.components.themed.ConfirmationDialog
+import app.pulse.android.ui.components.themed.TimePickerDialog
 import app.pulse.android.ui.screens.Route
 import app.pulse.android.utils.toast
 import kotlinx.coroutines.Dispatchers
@@ -84,6 +92,9 @@ fun DatabaseSettings() {
         }
 
         var pendingRestore by remember { mutableStateOf<PulseBackup.Ready?>(null) }
+
+        var showTimePicker by remember { mutableStateOf(false) }
+        var backupNowInProgress by remember { mutableStateOf(false) }
 
         val restoreLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.OpenDocument()
@@ -207,6 +218,142 @@ fun DatabaseSettings() {
                                 }
                             )
                         }
+
+                        val autoBackupFolderLauncher = rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.OpenDocumentTree()
+                        ) { uri ->
+                            if (uri == null) return@rememberLauncherForActivityResult
+
+                            runCatching {
+                                AutoBackupManager.takePersistableAccess(context, uri)
+                            }.onFailure {
+                                context.toast(R.string.backup_failed)
+                                return@rememberLauncherForActivityResult
+                            }
+                            autoBackupTreeUri = uri.toString()
+                            autoBackupEnabled = true
+                            AutoBackupScheduler.reschedule(context)
+                        }
+
+                        SettingsGroup(
+                            title = stringResource(R.string.automatic_backup),
+                            description = stringResource(R.string.automatic_backup_description)
+                        ) {
+                            val lastRunFormat = remember {
+                                SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
+                            }
+
+                            // Storage-provider query: never on Main, reload on folder change.
+                            var backupFolderName by remember { mutableStateOf<String?>(null) }
+                            LaunchedEffect(autoBackupTreeUri) {
+                                backupFolderName = withContext(Dispatchers.IO) {
+                                    AutoBackupManager.folderName(context)
+                                }
+                            }
+
+                            SwitchSettingsEntry(
+                                title = stringResource(R.string.automatic_backup_enabled),
+                                text = stringResource(R.string.automatic_backup_enabled_description),
+                                isChecked = autoBackupEnabled,
+                                onCheckedChange = { checked ->
+                                    if (checked && autoBackupTreeUri.isBlank()) {
+                                        try {
+                                            autoBackupFolderLauncher.launch(null)
+                                        } catch (_: ActivityNotFoundException) {
+                                            context.toast(R.string.no_file_chooser_installed)
+                                        }
+                                    } else {
+                                        autoBackupEnabled = checked
+                                        AutoBackupScheduler.reschedule(context)
+                                    }
+                                }
+                            )
+
+                            SettingsEntry(
+                                title = stringResource(R.string.backup_folder),
+                                text = backupFolderName
+                                    ?: stringResource(R.string.backup_folder_none),
+                                showDivider = true,
+                                onClick = {
+                                    try {
+                                        autoBackupFolderLauncher.launch(null)
+                                    } catch (_: ActivityNotFoundException) {
+                                        context.toast(R.string.no_file_chooser_installed)
+                                    }
+                                }
+                            )
+
+                            SettingsEntry(
+                                title = stringResource(R.string.backup_time),
+                                valueChip = String.format(
+                                    Locale.US,
+                                    "%02d:%02d",
+                                    autoBackupHour,
+                                    autoBackupMinute
+                                ),
+                                showDivider = true,
+                                onClick = { showTimePicker = true }
+                            )
+
+                            EnumValueSelectorSettingsEntry(
+                                title = stringResource(R.string.backup_frequency),
+                                selectedValue = autoBackupFrequency,
+                                onValueSelect = {
+                                    autoBackupFrequency = it
+                                    AutoBackupScheduler.reschedule(context)
+                                },
+                                valueText = { it.displayName() }
+                            )
+
+                            SettingsEntry(
+                                title = stringResource(R.string.backup_now),
+                                text = when {
+                                    backupNowInProgress ->
+                                        stringResource(R.string.auto_backup_running)
+
+                                    autoBackupLastRun == 0L ->
+                                        stringResource(R.string.auto_backup_never)
+
+                                    autoBackupLastSuccess -> stringResource(
+                                        R.string.auto_backup_last_run,
+                                        lastRunFormat.format(Date(autoBackupLastRun))
+                                    )
+
+                                    else -> stringResource(
+                                        R.string.auto_backup_last_failed,
+                                        autoBackupLastError.ifBlank {
+                                            stringResource(R.string.auto_backup_unknown_error)
+                                        }
+                                    )
+                                },
+                                showDivider = true,
+                                isEnabled = autoBackupTreeUri.isNotBlank() && !backupNowInProgress,
+                                trailingContent = if (backupNowInProgress) {
+                                    {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                } else null,
+                                onClick = {
+                                    backupNowInProgress = true
+                                    scope.launch(Dispatchers.IO) {
+                                        val ok = AutoBackupManager.runBackup(
+                                            context,
+                                            requireEnabled = false
+                                        )
+                                        withContext(Dispatchers.Main) {
+                                            backupNowInProgress = false
+                                            context.toast(
+                                                if (ok) context.getString(R.string.backup_done)
+                                                else context.getString(R.string.backup_failed)
+                                            )
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
                         SettingsGroup(
                             title = stringResource(R.string.restore),
                             description = stringResource(R.string.restore_warning),
@@ -271,6 +418,19 @@ fun DatabaseSettings() {
                                 confirmText = stringResource(R.string.restore)
                             )
                         }
+
+                        if (showTimePicker) TimePickerDialog(
+                            initialHour = autoBackupHour,
+                            initialMinute = autoBackupMinute,
+                            onDismiss = { showTimePicker = false },
+                            onAccept = { hour, minute ->
+                                autoBackupHour = hour
+                                autoBackupMinute = minute
+                                if (autoBackupEnabled) {
+                                    AutoBackupScheduler.reschedule(context)
+                                }
+                            }
+                        )
                     }
                 }
 }

@@ -9,6 +9,8 @@ import coil3.imageLoader
 import coil3.request.ImageRequest
 import app.pulse.providers.innertube.Innertube
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -82,14 +84,27 @@ object HomeCache {
 
     /** Pre-warms in-memory cache from disk asynchronously during app start. */
     suspend fun initFromDisk(filesDir: File) {
-        if (inMemoryDiscover == null) {
-            inMemoryDiscover = restore<DiscoverData, Innertube.DiscoverPage>(filesDir, "discover.json") { it.page }?.getOrNull()
-        }
-        if (inMemoryRelated == null) {
-            restoreRelated(filesDir) // also fills inMemoryRelatedSeed
-        }
-        if (inMemorySections == null) {
-            restoreSections(filesDir)
+        // The three restores are independent disk reads + JSON decodes:
+        // run them concurrently instead of serially.
+        coroutineScope {
+            val discover = async {
+                if (inMemoryDiscover == null) {
+                    inMemoryDiscover = restore<DiscoverData, Innertube.DiscoverPage>(filesDir, "discover.json") { it.page }?.getOrNull()
+                }
+            }
+            val related = async {
+                if (inMemoryRelated == null) {
+                    restoreRelated(filesDir) // also fills inMemoryRelatedSeed
+                }
+            }
+            val sections = async {
+                if (inMemorySections == null) {
+                    restoreSections(filesDir)
+                }
+            }
+            discover.await()
+            related.await()
+            sections.await()
         }
     }
 

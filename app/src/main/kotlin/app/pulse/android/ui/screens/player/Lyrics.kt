@@ -11,13 +11,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -58,12 +55,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -92,10 +88,10 @@ import app.pulse.android.utils.SynchronizedLyricsState
 import app.pulse.android.utils.bold
 import app.pulse.android.utils.center
 import app.pulse.android.utils.color
-import app.pulse.android.utils.isInPip
 import app.pulse.android.utils.medium
 import app.pulse.android.utils.semiBold
 import app.pulse.android.utils.toast
+import app.pulse.android.utils.LyricsRomanizer
 import app.pulse.core.ui.LocalAppearance
 import app.pulse.core.ui.onOverlay
 import app.pulse.core.ui.onOverlayShimmer
@@ -132,6 +128,88 @@ private const val LYRICS_OFFSET_MS = 1000L
 
 private const val ACTIVE_LINE_SCALE = 1.05f
 
+/**
+ * One synced-lyric row. Inputs are tiered (active / adjacent / near / far)
+ * instead of exact distance so rows keep equal inputs across ticks and
+ * Compose skips them: only rows crossing a tier boundary recompose at 10Hz.
+ * Distant rows render statically with no layer transform; only the active
+ * line and its neighbors run springs.
+ */
+@Composable
+private fun LyricLine(
+    sentence: String,
+    active: Boolean,
+    tier: Int,
+    seekPositionMs: Long,
+    lyricsFontSize: TextUnit,
+    onSeek: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val (colorPalette, typography) = LocalAppearance.current
+
+    val targetAlpha = when (tier) {
+        0 -> 1f
+        1 -> 0.52f
+        2 -> 0.24f
+        else -> 0.10f
+    }
+    val colorState by animateColorAsState(
+        targetValue = if (active) Color.White else colorPalette.text,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "lyricLineColor"
+    )
+    val alpha by animateFloatAsState(
+        targetValue = targetAlpha,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "lyricLineAlpha"
+    )
+    val color = colorState.copy(alpha = alpha)
+    val scale by animateFloatAsState(
+        targetValue = if (active) ACTIVE_LINE_SCALE else 0.98f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "lyricLineScale"
+    )
+
+    Column(
+        horizontalAlignment = Alignment.Start,
+        modifier = modifier
+            .then(
+                if (tier <= 1) Modifier.graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                } else Modifier
+            )
+            .padding(vertical = 12.dp, horizontal = 48.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { onSeek(seekPositionMs) }
+            )
+    ) {
+        if (sentence.isBlank()) Image(
+            painter = painterResource(R.drawable.musical_notes),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(color),
+            modifier = Modifier
+                .padding(vertical = 2.dp)
+                .size(lyricsFontSize.value.dp)
+        ) else BasicText(
+            text = sentence,
+            style = if (active) typography.m.bold.copy(fontSize = lyricsFontSize).color(color)
+            else typography.m.semiBold.copy(fontSize = lyricsFontSize).color(color)
+        )
+    }
+}
+
 // Center a lyric line using measured layout metrics (ported from ArchiveTune):
 // read the item's real offset and size from layoutInfo and scroll BY the delta
 // to the viewport center, so centering is exact at every font size. When the
@@ -166,6 +244,145 @@ private suspend fun LazyListState.centerActiveItem(
     }
 }
 
+internal data class FetchedLyrics(
+    val fixed: String?,
+    val synced: String?,
+    val fixedRomanized: String?,
+    val syncedRomanized: String?
+) {
+    val hasContent: Boolean
+        get() = !fixed.isNullOrBlank() || !synced.isNullOrBlank()
+}
+
+private data class SyncedResult(
+    val synced: String,
+    val romanizedSynced: String?,
+    val plain: String? = null,
+    val romanizedPlain: String? = null
+)
+
+private fun Lyrics?.isNullOrNoContent(): Boolean =
+    this == null || (fixed.isNullOrBlank() && synced.isNullOrBlank())
+
+/**
+ * Backfills romanized variants for lyrics cached before romanization existed
+ * (and for provider payloads that shipped only the original script). Local
+ * transliteration keeps timestamps because [LyricsRomanizer.romanizeLrc]
+ * preserves them.
+ */
+internal fun Lyrics.withRomanizedVariants(): Lyrics {
+    val newFixed = fixedRomanized ?: fixed?.let(LyricsRomanizer::romanize)
+    val newSynced = syncedRomanized ?: synced?.let(LyricsRomanizer::romanizeLrc)
+    return if (newFixed == fixedRomanized && newSynced == syncedRomanized) this
+    else copy(fixedRomanized = newFixed, syncedRomanized = newSynced)
+}
+
+private fun String?.plainOrNull(): String? = this?.trim()?.takeIf { it.isNotBlank() }
+
+private fun String?.syncedOrNull(): String? = this?.trim()
+    ?.takeIf { it.isNotBlank() && LyricsRomanizer.isSynced(it) }
+
+private suspend fun fetchBetter(
+    title: String,
+    artist: String,
+    durationSec: Int?,
+    album: String?
+): BetterLyrics.ParsedLyrics? = BetterLyrics.getParsedLyrics(
+    title = title,
+    artist = artist,
+    duration = durationSec ?: -1,
+    album = album
+)
+
+/**
+ * Synchronized lyrics preference chain: Better Lyrics (word-level TTML and
+ * provider romanization) -> LRCLIB (large free line-synced database) -> KuGou
+ * (broad Asian catalogue). Plain lyrics keep the current YouTube/Innertube
+ * source, then LRCLIB, and are derived from synced lyrics when a synchronized
+ * provider is the only one that has the song.
+ *
+ * Every step is bounded by the provider HTTP timeouts, so a dead provider
+ * cannot hold the lyrics screen hostage.
+ */
+private suspend fun fetchSynced(
+    artist: String,
+    title: String,
+    altTitle: String,
+    album: String?,
+    durationSec: Int?,
+    duration: Long
+): SyncedResult? {
+    // Nothing to query; better to fall through to an empty state than to
+    // spend 8s per provider on empty parameters.
+    if (title.isBlank() && artist.isBlank()) return null
+
+    // 1. Better Lyrics — the preferred synchronized provider.
+    val better = fetchBetter(title, artist, durationSec, album)
+        ?: if (altTitle != title) fetchBetter(altTitle, artist, durationSec, album) else null
+    if (better != null) return SyncedResult(
+        synced = better.synced,
+        romanizedSynced = better.romanizedSynced,
+        plain = better.plain,
+        romanizedPlain = better.romanizedPlain
+    )
+
+    // 2. LRCLIB — reliable free fallback; retry with the shortened title.
+    val lrcLib = LrcLib.bestLyrics(
+        artist = artist,
+        title = title,
+        duration = duration.milliseconds,
+        album = album
+    )?.getOrNull()?.text.syncedOrNull()
+        ?: if (altTitle != title) LrcLib.bestLyrics(
+            artist = artist,
+            title = altTitle,
+            duration = duration.milliseconds,
+            album = album
+        )?.getOrNull()?.text.syncedOrNull() else null
+    if (lrcLib != null) return SyncedResult(
+        synced = lrcLib,
+        romanizedSynced = LyricsRomanizer.romanizeLrc(lrcLib)
+    )
+
+    // 3. KuGou — broad Asian catalogue fallback.
+    val kugou = KuGou.lyrics(
+        artist = artist,
+        title = title,
+        duration = duration / 1000
+    )?.getOrNull()?.value.syncedOrNull()
+    if (kugou != null) return SyncedResult(
+        synced = kugou,
+        romanizedSynced = LyricsRomanizer.romanizeLrc(kugou)
+    )
+
+    return null
+}
+
+private suspend fun fetchPlain(
+    mediaId: String,
+    artist: String,
+    title: String,
+    altTitle: String,
+    album: String?,
+    duration: Long
+): String? = Innertube.lyrics(NextBody(videoId = mediaId))
+    ?.getOrNull()
+    .plainOrNull()
+    ?: LrcLib.bestLyrics(
+        artist = artist,
+        title = title,
+        duration = duration.milliseconds,
+        album = album,
+        synced = false
+    )?.getOrNull()?.text.plainOrNull()
+    ?: if (altTitle != title) LrcLib.bestLyrics(
+        artist = artist,
+        title = altTitle,
+        duration = duration.milliseconds,
+        album = album,
+        synced = false
+    )?.getOrNull()?.text.plainOrNull() else null
+
 internal suspend fun fetchLyricsParallel(
     mediaId: String,
     artist: String,
@@ -174,78 +391,70 @@ internal suspend fun fetchLyricsParallel(
     duration: Long,
     currentFixed: String?,
     currentSynced: String?
-): Pair<String?, String?> = coroutineScope {
-    val durationSec = (duration / 1000).toInt()
-    val altTitle = title.split("(")[0].trim()
+): FetchedLyrics = coroutineScope {
+    val durationSec = (duration / 1000).toInt().takeIf { it > 0 }
+    val altTitle = title.substringBefore('(').trim()
 
-    val fixedDef = async {
-        currentFixed ?: run {
-            listOf(
-                async { Innertube.lyrics(NextBody(videoId = mediaId))?.getOrNull() },
-                async {
-                    BetterLyrics.getPlainLyrics(
-                        title = title,
-                        artist = artist,
-                        duration = durationSec,
-                        album = album
-                    ).getOrNull()
-                },
-                async {
-                    LrcLib.bestLyrics(
-                        artist = artist,
-                        title = title,
-                        duration = duration.milliseconds,
-                        album = album,
-                        synced = false
-                    )?.map { it?.text }?.getOrNull()
-                }
-            ).firstNotNullOfOrNull { it.await() }
-        }
+    val existingFixed = currentFixed.plainOrNull()
+    val existingSynced = currentSynced.syncedOrNull()
+
+    // Plain lyrics are independent of the synced chain, so fetch them in
+    // parallel. When a cached synced copy exists they can be derived locally.
+    val plainDef = async {
+        existingFixed ?: if (existingSynced != null) null else fetchPlain(
+            mediaId = mediaId,
+            artist = artist,
+            title = title,
+            altTitle = altTitle,
+            album = album,
+            duration = duration
+        )
     }
     val syncedDef = async {
-        currentSynced ?: run {
-            val betterLyrics = BetterLyrics.getLyrics(
-                title = title,
-                artist = artist,
-                duration = durationSec,
-                album = album
-            ).getOrNull() ?: if (altTitle != title) {
-                BetterLyrics.getLyrics(
-                    title = altTitle,
-                    artist = artist,
-                    duration = durationSec,
-                    album = album
-                ).getOrNull()
-            } else null
-
-            betterLyrics ?: listOfNotNull(
-                async {
-                    LrcLib.bestLyrics(
-                        artist = artist,
-                        title = title,
-                        duration = duration.milliseconds,
-                        album = album
-                    )?.map { it?.text }?.getOrNull()
-                },
-                if (altTitle != title) async {
-                    LrcLib.bestLyrics(
-                        artist = artist,
-                        title = altTitle,
-                        duration = duration.milliseconds,
-                        album = album
-                    )?.map { it?.text }?.getOrNull()
-                } else null,
-                async {
-                    KuGou.lyrics(
-                        artist = artist,
-                        title = title,
-                        duration = duration / 1000
-                    )?.map { it?.value }?.getOrNull()
-                }
-            ).firstNotNullOfOrNull { it.await() }
-        }
+        if (existingSynced != null) null else fetchSynced(
+            artist = artist,
+            title = title,
+            altTitle = altTitle,
+            album = album,
+            durationSec = durationSec,
+            duration = duration
+        )
     }
-    fixedDef.await() to syncedDef.await()
+
+    val syncedResult = syncedDef.await()
+    val synced = existingSynced ?: syncedResult?.synced
+    val providerPlain = existingFixed ?: syncedResult?.plain?.plainOrNull()
+    // Do not leave the Innertube plain request running (and delaying the
+    // result) when the synchronized provider already supplied plain lyrics.
+    if (providerPlain != null) plainDef.cancel()
+    // A failed plain fetch must never sink an already-resolved synced side:
+    // CancellationException (our own cancel above) always propagates.
+    val plainResult = try {
+        plainDef.await()?.plainOrNull()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
+    val fixed = providerPlain
+        ?: plainResult
+        ?: synced?.let(LyricsRomanizer::lrcToPlainText)
+
+    FetchedLyrics(
+        fixed = fixed,
+        synced = synced,
+        fixedRomanized = when {
+            fixed == null -> null
+            fixed == syncedResult?.plain?.plainOrNull() -> syncedResult.romanizedPlain
+            else -> LyricsRomanizer.romanize(fixed)
+        },
+        syncedRomanized = when {
+            existingSynced != null -> LyricsRomanizer.romanizeLrc(existingSynced)
+            syncedResult?.romanizedSynced != null -> syncedResult.romanizedSynced
+            synced != null -> LyricsRomanizer.romanizeLrc(synced)
+            else -> null
+        }
+    )
 }
 
 @Composable
@@ -279,22 +488,51 @@ fun Lyrics(
     val binder = LocalPlayerServiceBinder.current
     val view = LocalView.current
 
-    val pip = isInPip()
+    var lyrics by remember(mediaId) { mutableStateOf<Lyrics?>(LyricsCache[mediaId]) }
+    var isLoading by remember(mediaId) { mutableStateOf(LyricsCache[mediaId] == null) }
 
-    var lyrics by remember { mutableStateOf<Lyrics?>(LyricsCache[mediaId]) }
-
-    val showSynchronizedLyrics = remember(shouldShowSynchronizedLyrics, lyrics) {
-        shouldShowSynchronizedLyrics && lyrics?.synced?.isBlank() != true
+    val romanize = PlayerPreferences.romanizeLyrics
+    val syncedSource = remember(lyrics, romanize) {
+        lyrics?.synced?.takeIf { it.isNotBlank() }?.let { original ->
+            if (romanize) lyrics?.syncedRomanized?.takeIf { it.isNotBlank() } ?: original
+            else original
+        }
     }
-
-    var editing by remember(mediaId, shouldShowSynchronizedLyrics) { mutableStateOf(false) }
-    var picking by remember(mediaId, shouldShowSynchronizedLyrics) { mutableStateOf(false) }
-    var error by remember(mediaId, shouldShowSynchronizedLyrics) { mutableStateOf(false) }
-
-    val text = remember(lyrics, showSynchronizedLyrics) {
-        if (showSynchronizedLyrics) lyrics?.synced else lyrics?.fixed
+    val plainSource = remember(lyrics, romanize) {
+        lyrics?.fixed?.takeIf { it.isNotBlank() }?.let { original ->
+            if (romanize) lyrics?.fixedRomanized?.takeIf { it.isNotBlank() } ?: original
+            else original
+        }
     }
-    var invalidLrc by remember(text) { mutableStateOf(false) }
+    val syncedFile = remember(syncedSource) {
+        syncedSource?.let { source ->
+            runCatching { LrcParser.parse(source)?.toLrcFile() }
+                .getOrNull()
+                ?.takeIf { file -> file.lines.values.any { it.isNotBlank() } }
+        }
+    }
+    val hasSynced = syncedFile != null
+    val hasPlain = !plainSource.isNullOrBlank()
+    // Never show an empty surface: when the user prefers plain lyrics but the
+    // provider only had synchronized ones, synchronized lyrics are the better
+    // fallback (and are never allowed to dismiss the screen).
+    val showSynchronizedLyrics = hasSynced && (shouldShowSynchronizedLyrics || !hasPlain)
+
+    val nothingAvailable = !isLoading && !hasPlain && !hasSynced
+
+    // No lyrics at all: briefly show the empty message, then return to the
+    // player surface instead of leaving the user on a blank lyrics screen.
+    LaunchedEffect(nothingAvailable) {
+        if (nothingAvailable) {
+            delay(2000)
+            onDismiss()
+        }
+    }
+    val canRomanize = !lyrics?.syncedRomanized.isNullOrBlank() ||
+        !lyrics?.fixedRomanized.isNullOrBlank()
+
+    var editing by remember(mediaId) { mutableStateOf(false) }
+    var picking by remember(mediaId) { mutableStateOf(false) }
 
     DisposableEffect(shouldKeepScreenAwake) {
         view.keepScreenOn = shouldKeepScreenAwake
@@ -304,11 +542,15 @@ fun Lyrics(
         }
     }
 
-    LaunchedEffect(mediaId, shouldShowSynchronizedLyrics) {
+    LaunchedEffect(mediaId) {
         LyricsCache[mediaId]?.let { cached ->
-            lyrics = cached
-            error = (shouldShowSynchronizedLyrics && cached.synced.isNullOrBlank()) ||
-                (!shouldShowSynchronizedLyrics && cached.fixed.isNullOrBlank())
+            if (cached.fixed != null || cached.synced != null) {
+                // ICU transliteration init is expensive: off the main thread.
+                val enriched = withContext(Dispatchers.IO) { cached.withRomanizedVariants() }
+                lyrics = enriched
+                if (enriched != cached) LyricsCache[mediaId] = enriched
+                isLoading = false
+            }
         }
 
         runCatching {
@@ -318,77 +560,94 @@ fun Lyrics(
                     .distinctUntilChanged()
                     .cancellable()
                     .collect { currentLyrics ->
-                        if (
-                            !shouldUpdateLyrics ||
-                            (currentLyrics?.fixed != null && currentLyrics.synced != null)
-                        ) lyrics = currentLyrics
-                        else {
-                            val mediaMetadata = currentMediaMetadataProvider()
-                            var duration =
-                                withContext(Dispatchers.Main) { currentDurationProvider() }
+                        // All-blank rows (legacy failed attempts persisted as
+                        // "") count as NOT attempted so a transient failure
+                        // never permanently blocks retries.
+                        val alreadyAttempted =
+                            currentLyrics?.let { !(it.fixed.isNullOrBlank() && it.synced.isNullOrBlank()) } == true
 
-                            while (duration == C.TIME_UNSET) {
-                                delay(100)
-                                duration =
-                                    withContext(Dispatchers.Main) { currentDurationProvider() }
+                        if (!shouldUpdateLyrics || alreadyAttempted) {
+                            val enriched = currentLyrics?.withRomanizedVariants()
+                            lyrics = enriched
+                            if (currentLyrics != null && enriched != null && enriched != currentLyrics) {
+                                LyricsCache[mediaId] = enriched
+                                transaction { runCatching { Database.upsert(enriched) } }
                             }
-
-                            val album = mediaMetadata.albumTitle?.toString()
-                            val artist = mediaMetadata.artist?.toString().orEmpty()
-                            val title = mediaMetadata.title?.toString().orEmpty().let {
-                                if (mediaId.startsWith(LOCAL_KEY_PREFIX)) it
-                                    .substringBeforeLast('.')
-                                    .trim()
-                                else it
-                            }
-
-                            lyrics = null
-                            error = false
-
-                            val (fixed, synced) = fetchLyricsParallel(
-                                mediaId = mediaId,
-                                artist = artist,
-                                title = title,
-                                album = album,
-                                duration = duration,
-                                currentFixed = currentLyrics?.fixed,
-                                currentSynced = currentLyrics?.synced
-                            )
-
-                            Lyrics(
-                                songId = mediaId,
-                                fixed = fixed.orEmpty(),
-                                synced = synced.orEmpty()
-                            ).also {
-                                ensureActive()
-
-                                LyricsCache[mediaId] = it
-
-                                transaction {
-                                    runCatching {
-                                        currentEnsureSongInserted()
-                                        Database.upsert(it)
-                                    }
-                                }
-                            }
+                            isLoading = false
+                            return@collect
                         }
 
-                        error =
-                            (shouldShowSynchronizedLyrics && lyrics?.synced?.isBlank() == true) ||
-                            (!shouldShowSynchronizedLyrics && lyrics?.fixed?.isBlank() == true)
+                        if (currentLyrics.isNullOrNoContent()) isLoading = true
+
+                        val mediaMetadata = currentMediaMetadataProvider()
+                        var duration =
+                            withContext(Dispatchers.Main) { currentDurationProvider() }
+                        var waited = 0L
+
+                        // A missing duration (live/local edge cases) must never
+                        // block the fetch forever; providers simply get no hint.
+                        while (duration == C.TIME_UNSET && waited < 3_000L) {
+                            delay(100)
+                            waited += 100
+                            duration =
+                                withContext(Dispatchers.Main) { currentDurationProvider() }
+                        }
+
+                        val album = mediaMetadata.albumTitle?.toString()
+                        val artist = mediaMetadata.artist?.toString().orEmpty()
+                        val title = mediaMetadata.title?.toString().orEmpty().let {
+                            if (mediaId.startsWith(LOCAL_KEY_PREFIX)) it
+                                .substringBeforeLast('.')
+                                .trim()
+                            else it
+                        }
+
+                        val existing = currentLyrics
+                        val fetched = fetchLyricsParallel(
+                            mediaId = mediaId,
+                            artist = artist,
+                            title = title,
+                            album = album,
+                            duration = duration,
+                            currentFixed = existing?.fixed?.takeIf { it.isNotBlank() },
+                            currentSynced = existing?.synced?.takeIf { it.isNotBlank() }
+                        )
+
+                        ensureActive()
+
+                        if (fetched.hasContent) {
+                            val updated = Lyrics(
+                                songId = mediaId,
+                                fixed = fetched.fixed.orEmpty(),
+                                synced = fetched.synced.orEmpty(),
+                                startTime = currentLyrics?.startTime,
+                                fixedRomanized = fetched.fixedRomanized,
+                                syncedRomanized = fetched.syncedRomanized
+                            )
+
+                            LyricsCache[mediaId] = updated
+                            lyrics = updated
+                            isLoading = false
+
+                            transaction {
+                                runCatching {
+                                    currentEnsureSongInserted()
+                                    Database.upsert(updated)
+                                }
+                            }
+                        } else {
+                            // A fetch that found nothing must not erase lyrics
+                            // the user already had — nor be persisted as an
+                            // empty row, which would block every future retry.
+                            lyrics = currentLyrics
+                            isLoading = false
+                        }
                     }
             }
         }.exceptionOrNull()?.let {
             if (it is CancellationException) throw it
-            else it.printStackTrace()
-        }
-    }
-
-    // close when the song has no lyrics
-    LaunchedEffect(error) {
-        if (error) {
-            delay(2.seconds)
-            if (error) onDismiss()
+            isLoading = false
+            it.printStackTrace()
         }
     }
 
@@ -399,8 +658,7 @@ fun Lyrics(
     ) {
         if (editing) TextFieldDialog(
         hintText = stringResource(R.string.enter_lyrics),
-        initialTextInput = (if (shouldShowSynchronizedLyrics) lyrics?.synced else lyrics?.fixed)
-            .orEmpty(),
+        initialTextInput = (if (showSynchronizedLyrics) syncedSource else plainSource).orEmpty(),
         singleLine = false,
         maxLines = 10,
         isTextInputValid = { true },
@@ -411,14 +669,20 @@ fun Lyrics(
                     currentEnsureSongInserted()
 
                     Database.upsert(
-                        if (shouldShowSynchronizedLyrics) Lyrics(
+                        if (showSynchronizedLyrics) Lyrics(
                             songId = mediaId,
                             fixed = lyrics?.fixed,
-                            synced = it
+                            synced = it,
+                            startTime = lyrics?.startTime,
+                            fixedRomanized = lyrics?.fixedRomanized,
+                            syncedRomanized = null
                         ) else Lyrics(
                             songId = mediaId,
                             fixed = it,
-                            synced = lyrics?.synced
+                            synced = lyrics?.synced,
+                            startTime = lyrics?.startTime,
+                            fixedRomanized = null,
+                            syncedRomanized = lyrics?.syncedRomanized
                         )
                     )
                 }
@@ -449,7 +713,12 @@ fun Lyrics(
                             Lyrics(
                                 songId = mediaId,
                                 fixed = lyrics?.fixed,
-                                synced = it.syncedLyrics
+                                synced = it.syncedLyrics,
+                                startTime = lyrics?.startTime,
+                                fixedRomanized = lyrics?.fixedRomanized,
+                                syncedRomanized = LyricsRomanizer.romanizeLrc(
+                                    it.syncedLyrics.orEmpty()
+                                )
                             )
                         )
                     }
@@ -460,64 +729,19 @@ fun Lyrics(
 
     BoxWithConstraints(
         contentAlignment = Alignment.TopStart,
-        modifier = modifier
-            .pointerInput(Unit) {
-                detectTapGestures(onTap = { onDismiss() })
-            }
-            .fillMaxSize()
+        modifier = modifier.fillMaxSize()
     ) {
-        AnimatedVisibility(
-            visible = error,
-            enter = slideInVertically { -it },
-            exit = slideOutVertically { -it },
-            modifier = Modifier.align(Alignment.TopCenter)
-        ) {
-            BasicText(
-                text = stringResource(
-                    if (shouldShowSynchronizedLyrics) R.string.synchronized_lyrics_not_available
-                    else R.string.lyrics_not_available
-                ),
-                style = typography.xs.center.medium.color(colorPalette.onOverlay),
-                modifier = Modifier
-                    .background(Color.Black.copy(0.4f))
-                    .padding(all = 8.dp)
-                    .fillMaxWidth(),
-                maxLines = if (pip) 1 else Int.MAX_VALUE,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
 
-        AnimatedVisibility(
-            visible = !text.isNullOrBlank() && !error && invalidLrc && shouldShowSynchronizedLyrics,
-            enter = slideInVertically { -it },
-            exit = slideOutVertically { -it },
-            modifier = Modifier.align(Alignment.TopCenter)
-        ) {
-            BasicText(
-                text = stringResource(R.string.invalid_synchronized_lyrics),
-                style = typography.xs.center.medium.color(colorPalette.onOverlay),
-                modifier = Modifier
-                    .background(Color.Black.copy(0.4f))
-                    .padding(all = 8.dp)
-                    .fillMaxWidth(),
-                maxLines = if (pip) 1 else Int.MAX_VALUE,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        val lyricsState = rememberSaveable(text) {
-            val file = lyrics?.synced?.takeIf { it.isNotBlank() }?.let {
-                LrcParser.parse(it)?.toLrcFile()
-            }
-
+        val lyricsState = rememberSaveable(syncedSource, showSynchronizedLyrics) {
             SynchronizedLyricsState(
-                sentences = file?.lines,
-                offset = file?.offset?.inWholeMilliseconds ?: 0L
+                sentences = if (showSynchronizedLyrics) syncedFile.lines else null,
+                offset = if (showSynchronizedLyrics) {
+                    syncedFile.offset?.inWholeMilliseconds ?: 0L
+                } else 0L
             )
         }
 
         val synchronizedLyrics = remember(lyricsState, mediaId) {
-            invalidLrc = lyricsState.sentences == null
             lyricsState.sentences?.let {
                 SynchronizedLyrics(it.toImmutableMap()) {
                     binder?.player?.let { player ->
@@ -540,6 +764,15 @@ fun Lyrics(
             if (synchronized) {
 
                 var autoFollowPausedUntil by remember { mutableStateOf(0L) }
+
+                // Stable seek callback: recreated only if the binder changes,
+                // so lyric rows keep equal inputs and skip recomposition.
+                val onSeekLine = remember(binder) {
+                    { positionMs: Long ->
+                        binder?.player?.seekTo(positionMs)
+                        Unit
+                    }
+                }
 
                 val manualScrollConnection = remember {
                     var lastScrollTime = 0L
@@ -630,86 +863,47 @@ fun Lyrics(
                         items = sentenceList,
                         key = { index, _ -> index }
                     ) { index, sentence ->
+                        // Tier buckets keep far rows' inputs stable across ticks
+                        // so Compose skips them: only rows crossing a tier
+                        // boundary (or toggling active) recompose at 10Hz.
                         val active = index == synchronizedLyrics.index
-                        val distanceFromActive = abs(index - synchronizedLyrics.index)
-                        val lineAlpha = when {
-                            active -> 1f
-                            distanceFromActive == 1 -> 0.52f
-                            distanceFromActive == 2 -> 0.30f
-                            distanceFromActive == 3 -> 0.18f
-                            else -> 0.10f
+                        val tier = when (abs(index - synchronizedLyrics.index)) {
+                            0 -> 0
+                            1 -> 1
+                            2, 3 -> 2
+                            else -> 3
                         }
-                        val colorState by animateColorAsState(
-                            targetValue = if (active) Color.White else colorPalette.text,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            ),
-                            label = "lyricLineColor"
+                        val seekPositionMs = synchronizedLyrics.sentences.keys.elementAt(index)
+                        LyricLine(
+                            sentence = sentence,
+                            active = active,
+                            tier = tier,
+                            seekPositionMs = seekPositionMs,
+                            lyricsFontSize = lyricsFontSize,
+                            onSeek = onSeekLine
                         )
-                        val alpha by animateFloatAsState(
-                            targetValue = lineAlpha,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            ),
-                            label = "lyricLineAlpha"
-                        )
-                        val color = colorState.copy(alpha = alpha)
-                        val scale by animateFloatAsState(
-                            targetValue = if (active) ACTIVE_LINE_SCALE else 0.98f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            ),
-                            label = "lyricLineScale"
-                        )
-                        Column(
-                            horizontalAlignment = Alignment.Start,
-                            modifier = Modifier
-                                .graphicsLayer {
-                                    scaleX = scale
-                                    scaleY = scale
-                                }
-                                .padding(vertical = 12.dp, horizontal = 48.dp)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick = {
-                                        binder?.player?.seekTo(synchronizedLyrics.sentences.keys.elementAt(index))
-                                    }
-                                )
-                        ) {
-                            if (sentence.isBlank()) Image(
-                                painter = painterResource(R.drawable.musical_notes),
-                                contentDescription = null,
-                                colorFilter = ColorFilter.tint(color),
-                                modifier = Modifier
-                                    .padding(vertical = 2.dp)
-                                    .size(lyricsFontSize.dp)
-                            ) else BasicText(
-                                text = sentence,
-                                style = if (active) typography.m.bold.copy(fontSize = lyricsFontSize).color(color)
-                                else typography.m.semiBold.copy(fontSize = lyricsFontSize).color(color)
-                            )
-                        }
                     }
                     item(key = "footer", contentType = 0) {
                         Spacer(modifier = Modifier.height(maxHeight / 2))
                     }
                 }
             } else BasicText(
-                text = lyrics?.fixed.orEmpty(),
+                text = plainSource.orEmpty(),
                 style = typography.m.semiBold.copy(fontSize = lyricsFontSize).color(colorPalette.text.copy(alpha = 0.8f)),
                 modifier = Modifier
                     .verticalFadingEdge(topSize = 4, bottomSize = 0)
                     .verticalScroll(rememberScrollState())
                     .fillMaxWidth()
-                    .padding(vertical = 32.dp, horizontal = 48.dp)
+                    .padding(
+                        start = 48.dp,
+                        top = 32.dp,
+                        end = 48.dp,
+                        bottom = 32.dp
+                    )
             )
         }
 
-        if (text == null && !error) Column(
+        if (isLoading && !hasPlain && !hasSynced) Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .fillMaxWidth()
@@ -723,6 +917,10 @@ fun Lyrics(
                 )
             }
         }
+
+        if (nothingAvailable) LyricsEmptyState(
+            modifier = Modifier.align(Alignment.Center)
+        )
 
         if (showControls) {
             if (onOpenDialog != null) Image(
@@ -756,7 +954,7 @@ fun Lyrics(
                             onMenuLaunch()
                             menuState.display {
                                 Menu {
-                                    MenuEntry(
+                                    if (hasSynced && hasPlain) MenuEntry(
                                         icon = R.drawable.time,
                                         text = stringResource(
                                             if (shouldShowSynchronizedLyrics) R.string.show_unsynchronized_lyrics
@@ -767,6 +965,20 @@ fun Lyrics(
                                         onClick = {
                                             menuState.hide()
                                             setShouldShowSynchronizedLyrics(!shouldShowSynchronizedLyrics)
+                                        }
+                                    )
+
+                                    if (canRomanize) MenuEntry(
+                                        icon = R.drawable.translate,
+                                        text = stringResource(
+                                            if (romanize) R.string.show_original_lyrics
+                                            else R.string.romanize_lyrics
+                                        ),
+                                        secondaryText = if (romanize) null
+                                        else stringResource(R.string.romanize_lyrics_description),
+                                        onClick = {
+                                            menuState.hide()
+                                            PlayerPreferences.romanizeLyrics = !romanize
                                         }
                                     )
 
@@ -817,11 +1029,15 @@ fun Lyrics(
                                                         if (shouldShowSynchronizedLyrics) Lyrics(
                                                             songId = mediaId,
                                                             fixed = lyrics?.fixed,
-                                                            synced = null
+                                                            synced = null,
+                                                            startTime = lyrics?.startTime,
+                                                            fixedRomanized = lyrics?.fixedRomanized
                                                         ) else Lyrics(
                                                             songId = mediaId,
                                                             fixed = null,
-                                                            synced = lyrics?.synced
+                                                            synced = lyrics?.synced,
+                                                            startTime = lyrics?.startTime,
+                                                            syncedRomanized = lyrics?.syncedRomanized
                                                         )
                                                     )
                                                 }
@@ -866,6 +1082,19 @@ fun Lyrics(
         }
     }
     }
+}
+
+@Composable
+private fun LyricsEmptyState(
+    modifier: Modifier = Modifier
+) {
+    val (colorPalette, typography) = LocalAppearance.current
+
+    BasicText(
+        text = stringResource(R.string.lyrics_not_available),
+        style = typography.m.medium.center.copy(color = colorPalette.textSecondary),
+        modifier = modifier.padding(horizontal = 48.dp)
+    )
 }
 
 @Composable

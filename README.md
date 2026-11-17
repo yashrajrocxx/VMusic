@@ -50,6 +50,8 @@ No Google account required. No background trackers. Minimal battery and data con
 - **Unified Local Player**: Scan and play your local audio library (`.mp3`, `.flac`, `.m4a`, `.ogg`, `.opus`, `.wav`) alongside streamed content.
 - **Custom Playlists**: Combine streaming songs and local tracks into unified playlists.
 - **Backup & Restore**: Export and import your entire database (playlists, favorites, search history) as a single JSON file.
+- **Automatic Scheduled Backups**: Pick a folder and a time and VMusic quietly backs up your library every day or week, keeping the last 7 copies.
+- **Swipe to Play Next**: Swipe any song right to play it next. The gesture works across search, playlists, albums and library lists, with its own toggle in Appearance settings.
 
 ### Advanced Audio Engine (DSP)
 - **Volume Normalization**: Automatic replay-gain loudness normalization so every song plays at consistent volume without sudden spikes.
@@ -57,6 +59,11 @@ No Google account required. No background trackers. Minimal battery and data con
 - **Pitch & Tempo Controls**: Change playback speed (0.5x – 2.0x) or adjust audio pitch on the fly.
 - **Skip Silence**: Automatically detects and trims silent intros/outros to maintain continuous flow.
 - **Sleep Timer**: Schedule automatic playback pauses when falling asleep.
+
+### Listen Together (Synced Group Sessions)
+- **Shared Rooms**: Host a room and let friends join with a code to hear everything in perfect sync.
+- **Ask to Play**: Guests can request any queued song and the host gets an instant popup with Play now, Approve and Reject, on any screen or as a notification.
+- **Room Actions Everywhere**: Long press any song to play it now or next in the room. No links to paste, no extra steps.
 
 ### Material You & AMOLED Design
 - **Dynamic Theming (Monet)**: Adapts seamlessly to your Android system wallpaper accent colors (Android 12+).
@@ -75,19 +82,22 @@ No Google account required. No background trackers. Minimal battery and data con
 
 ## Screenshots
 
-<details>
-  <summary><b>Click to preview app screenshots</b></summary>
-  <br/>
-  <div align="center">
-    <img src="./assets/screenshots/4.jpg" width="31%" style="margin: 1%; border-radius: 8px;" />
-    <img src="./assets/screenshots/5.jpg" width="31%" style="margin: 1%; border-radius: 8px;" />
-    <img src="./assets/screenshots/6.jpg" width="31%" style="margin: 1%; border-radius: 8px;" />
-    <br/><br/>
-    <img src="./assets/screenshots/1.png" width="31%" style="margin: 1%; border-radius: 8px;" />
-    <img src="./assets/screenshots/2.png" width="31%" style="margin: 1%; border-radius: 8px;" />
-    <img src="./assets/screenshots/3.png" width="31%" style="margin: 1%; border-radius: 8px;" />
-  </div>
-</details>
+<div align="center">
+  <table>
+    <tr>
+      <td align="center"><img src="./assets/screenshots/1.jpg" width="200" /></td>
+      <td align="center"><img src="./assets/screenshots/2.jpg" width="200" /></td>
+      <td align="center"><img src="./assets/screenshots/3.jpg" width="200" /></td>
+      <td align="center"><img src="./assets/screenshots/4.jpg" width="200" /></td>
+    </tr>
+    <tr>
+      <td align="center"><img src="./assets/screenshots/5.jpg" width="200" /></td>
+      <td align="center"><img src="./assets/screenshots/6.jpg" width="200" /></td>
+      <td align="center"><img src="./assets/screenshots/7.jpg" width="200" /></td>
+      <td align="center"><img src="./assets/screenshots/8.jpg" width="200" /></td>
+    </tr>
+  </table>
+</div>
 
 ---
 

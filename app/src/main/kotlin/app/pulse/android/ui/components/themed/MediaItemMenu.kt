@@ -89,6 +89,7 @@ import app.pulse.android.preferences.PlayerPreferences
 import app.pulse.android.query
 import app.pulse.android.service.PrecacheService
 import app.pulse.android.service.isLocal
+import app.pulse.android.listentogether.ListenTogetherCoordinator
 import app.pulse.android.transaction
 import app.pulse.android.ui.items.SongItem
 import app.pulse.android.ui.screens.albumRoute
@@ -188,22 +189,43 @@ fun NonQueuedMediaItemMenu(
     onRemoveFromQuickPicks: (() -> Unit)? = null
 ) {
     val binder = LocalPlayerServiceBinder.current
+    val togetherState by ListenTogetherCoordinator.state.collectAsState()
+    // Inside a room the local playback actions are meaningless (the room
+    // owns playback): guests and host alike get room actions instead.
+    // Local files can't play in a room, so they keep the normal menu.
+    val inRoom = togetherState.inRoom && !mediaItem.isLocal
+    val onStartRadio: (() -> Unit)? = if (inRoom) null else ({
+        binder?.stopRadio()
+        binder?.player?.forcePlay(mediaItem)
+        binder?.setupRadio(
+            NavigationEndpoint.Endpoint.Watch(
+                videoId = mediaItem.mediaId,
+                playlistId = mediaItem.mediaMetadata.extras?.getString("playlistId")
+            )
+        )
+        Unit
+    })
+    val onPlayNext: (() -> Unit)? = if (inRoom) null else ({
+        binder?.player?.addNext(mediaItem)
+        Unit
+    })
+    val onEnqueue: (() -> Unit)? = if (inRoom) null else ({
+        binder?.player?.enqueue(mediaItem)
+        Unit
+    })
 
     BaseMediaItemMenu(
         mediaItem = mediaItem,
         onDismiss = onDismiss,
-        onStartRadio = {
-            binder?.stopRadio()
-            binder?.player?.forcePlay(mediaItem)
-            binder?.setupRadio(
-                NavigationEndpoint.Endpoint.Watch(
-                    videoId = mediaItem.mediaId,
-                    playlistId = mediaItem.mediaMetadata.extras?.getString("playlistId")
-                )
-            )
-        },
-        onPlayNext = { binder?.player?.addNext(mediaItem) },
-        onEnqueue = { binder?.player?.enqueue(mediaItem) },
+        onStartRadio = onStartRadio,
+        onPlayNext = onPlayNext,
+        onEnqueue = onEnqueue,
+        onPlayNowInRoom = if (inRoom) {
+            { ListenTogetherCoordinator.playNowInRoom(mediaItem.mediaId) }
+        } else null,
+        onPlayNextInRoom = if (inRoom) {
+            { ListenTogetherCoordinator.playNextInRoom(mediaItem.mediaId) }
+        } else null,
         onRemoveFromPlaylist = onRemoveFromPlaylist,
         onHideFromDatabase = onHideFromDatabase,
         onRemoveFromQuickPicks = onRemoveFromQuickPicks,
@@ -238,6 +260,8 @@ fun BaseMediaItemMenu(
     onStartRadio: (() -> Unit)? = null,
     onPlayNext: (() -> Unit)? = null,
     onEnqueue: (() -> Unit)? = null,
+    onPlayNowInRoom: (() -> Unit)? = null,
+    onPlayNextInRoom: (() -> Unit)? = null,
     onRemoveFromQueue: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     onHideFromDatabase: (() -> Unit)? = null,
@@ -257,6 +281,8 @@ fun BaseMediaItemMenu(
         onStartRadio = onStartRadio,
         onPlayNext = onPlayNext,
         onEnqueue = onEnqueue,
+        onPlayNowInRoom = onPlayNowInRoom,
+        onPlayNextInRoom = onPlayNextInRoom,
         onAddToPlaylist = { playlist, position ->
             transaction {
                 Database.insert(mediaItem)
@@ -383,6 +409,8 @@ fun MediaItemMenu(
     onStartRadio: (() -> Unit)? = null,
     onPlayNext: (() -> Unit)? = null,
     onEnqueue: (() -> Unit)? = null,
+    onPlayNowInRoom: (() -> Unit)? = null,
+    onPlayNextInRoom: (() -> Unit)? = null,
     onHideFromDatabase: (() -> Unit)? = null,
     onRemoveFromQueue: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
@@ -447,6 +475,8 @@ fun MediaItemMenu(
     val startRadioText = stringResource(R.string.start_radio)
     val playNextText = stringResource(R.string.play_next)
     val enqueueText = stringResource(R.string.enqueue)
+    val playNowInRoomText = stringResource(R.string.together_play_now_in_room)
+    val playNextInRoomText = stringResource(R.string.together_play_next_in_room)
     val addToPlaylistText = stringResource(R.string.add_to_playlist)
     val goToAlbumText = stringResource(R.string.go_to_album)
     val sleepTimerText = stringResource(R.string.sleep_timer)
@@ -591,6 +621,32 @@ fun MediaItemMenu(
                     .weight(1f, fill = false)
                     .padding(vertical = 4.dp)
             ) {
+                if (onPlayNowInRoom != null) {
+                    item(key = "play_now_in_room") {
+                        SongMenuEntry(
+                            icon = R.drawable.play,
+                            text = playNowInRoomText,
+                            onClick = {
+                                onDismiss()
+                                onPlayNowInRoom()
+                            }
+                        )
+                    }
+                }
+
+                if (onPlayNextInRoom != null) {
+                    item(key = "play_next_in_room") {
+                        SongMenuEntry(
+                            icon = R.drawable.play_skip_forward,
+                            text = playNextInRoomText,
+                            onClick = {
+                                onDismiss()
+                                onPlayNextInRoom()
+                            }
+                        )
+                    }
+                }
+
                 if (onStartRadio != null) {
                     item(key = "start_radio") {
                         SongMenuEntry(

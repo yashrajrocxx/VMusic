@@ -21,6 +21,6 @@ import app.pulse.core.data.models.SongEntity
 data class Event(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     @ColumnInfo(index = true) val songId: String,
-    val timestamp: Long,
+    @ColumnInfo(index = true) val timestamp: Long,
     val playTime: Long
 )

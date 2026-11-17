@@ -102,6 +102,12 @@ fun Player?.positionAndDurationState(
     LaunchedEffect(this, isPlaying, lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (isActive) {
+                // Paused: the position can't move — poll lazily instead of
+                // waking the UI 4x/second for an identical value.
+                if (isPlaying != true) {
+                    delay(1_000)
+                    continue
+                }
                 delay(delay)
                 this@positionAndDurationState?.run {
                     state = currentPosition to duration

@@ -322,7 +322,7 @@ fun Queue(
                                     .let {
                                         if (!isPlayingThisMediaItem)
                                             it.swipeToClose(
-                                                key = windows,
+                                                key = window.mediaItem.mediaId,
                                                 delay = 100.milliseconds,
                                                 requireUnconsumed = true
                                             ) {
@@ -611,7 +611,7 @@ fun QueueOverlay(
     val isScrolling by remember { derivedStateOf { lazyListState.isScrollInProgress } }
 
     Column(modifier = modifier.padding(horizontal = 48.dp)) {
-        // header
+        // Header: queue title + shuffle/repeat/crossfade controls
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -667,6 +667,7 @@ fun QueueOverlay(
                                 }
                             } else {
                                 PlayerPreferences.edit(commit = true) {
+                                    putBoolean("trackLoopEnabled", false)
                                     putBoolean("queueLoopEnabled", true)
                                 }
                             }
@@ -774,7 +775,7 @@ fun QueueOverlay(
                             .let {
                                 if (!isPlayingThisMediaItem && !isScrolling)
                                     it.swipeToClose(
-                                        key = windows,
+                                        key = window.mediaItem.mediaId,
                                         delay = 100.milliseconds,
                                         requireUnconsumed = true
                                     ) {

@@ -249,6 +249,6 @@ fun RestartPlayerSettingsEntry(
         },
         modifier = Modifier
             .weight(1f)
-            .padding(end = 24.dp)
+            .padding(end = 16.dp)
     )
 }

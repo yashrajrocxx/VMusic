@@ -72,7 +72,6 @@ import app.pulse.core.data.enums.SortOrder
 import app.pulse.core.data.utils.songBundle
 import io.ktor.http.Url
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -97,11 +96,9 @@ object DatabaseDependency {
         )
         .build()
 
-    // Unfortunately, this HAS to block with the current architecture
-    fun reload() = runBlocking {
-        mutex.withLock {
-            _instance = buildDatabase()
-        }
+    // Suspend: Room rebuild (incl. migrations) must never block the caller.
+    suspend fun reload() = mutex.withLock {
+        _instance = buildDatabase()
     }
 }
 
@@ -608,11 +605,9 @@ interface DatabaseAccessor {
     @Query("SELECT COUNT (*) FROM Song where blacklisted")
     fun blacklistLength(): Flow<Int>
 
-    @Transaction
     @Query("UPDATE Song SET blacklisted = NOT blacklisted WHERE blacklisted")
     fun resetBlacklist()
 
-    @Transaction
     @Query("UPDATE Song SET blacklisted = NOT blacklisted WHERE id = :songId")
     fun toggleBlacklist(songId: String)
 
@@ -861,7 +856,7 @@ interface DatabaseAccessor {
         PipedSession::class
     ],
     views = [SortedSongPlaylistMap::class],
-    version = 32,
+    version = 34,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
@@ -890,6 +885,8 @@ interface DatabaseAccessor {
         AutoMigration(from = 28, to = 29),
         AutoMigration(from = 29, to = 30),
         AutoMigration(from = 30, to = 31, spec = DatabaseInitializer.From30To31Migration::class),
+        AutoMigration(from = 32, to = 33),
+        AutoMigration(from = 33, to = 34),
     ]
 )
 @TypeConverters(Converters::class)
@@ -1199,10 +1196,20 @@ object Converters {
 val DatabaseAccessor.internal: RoomDatabase
     get() = DatabaseDependency.instance
 
-fun query(block: () -> Unit) = DatabaseDependency.instance.queryExecutor.execute(block)
+private const val TAG = "Database"
+
+fun query(block: () -> Unit) = DatabaseDependency.instance.queryExecutor.execute {
+    // These executor threads surface exceptions as uncaught (Android kills the
+    // process); callers treat queries as fire-and-forget, so a DB failure must
+    // degrade to a log instead of a crash.
+    runCatching(block).onFailure { android.util.Log.e(TAG, "query failed", it) }
+}
 
 fun transaction(block: () -> Unit) = with(DatabaseDependency.instance) {
     transactionExecutor.execute {
-        runInTransaction(block)
+        runCatching { runInTransaction(block) }
+            .onFailure {
+                android.util.Log.e(TAG, "transaction rolled back", it)
+            }
     }
 }

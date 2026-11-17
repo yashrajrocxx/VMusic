@@ -180,10 +180,11 @@ fun MorphingNavigationBar(
     val compact = AppearancePreferences.compactDock
     val lazyListState = rememberLazyListState()
     
-    // Filter visible tabs (same logic as PillNavigationBar)
-    val visibleTabsWithIndices = remember(tabs, hiddenTabs, tabIndex) {
-        tabs.mapIndexed { index, tab -> index to tab }
-            .filter { (index, tab) -> tab.key !in hiddenTabs || index == tabIndex }
+    // Filter visible tabs (same logic as PillNavigationBar).
+    // Tabs are addressed by KEY, not positional index — dock order can differ
+    // from key order (e.g. Together=10 before Settings=9) and tabs can be hidden.
+    val visibleTabs = remember(tabs, hiddenTabs, tabIndex) {
+        tabs.filter { tab -> tab.key !in hiddenTabs || tab.key == tabIndex.toString() }
     }
 
     Box(
@@ -214,14 +215,14 @@ fun MorphingNavigationBar(
                     horizontalArrangement = Arrangement.Center,
                     contentPadding = PaddingValues(horizontal = if (compact) 4.dp else 8.dp)
                 ) {
-                    itemsIndexed(visibleTabsWithIndices) { _, (originalIndex, tab) ->
-                        val isSelected = originalIndex == tabIndex
+                    itemsIndexed(visibleTabs) { _, tab ->
+                        val isSelected = tab.key == tabIndex.toString()
                         val itemAlpha = if (isSelected) 1f else (1f - progress).coerceIn(0f, 1f)
                         Box(modifier = Modifier.graphicsLayer { alpha = itemAlpha }) {
                             PillNavigationItem(
                                 tab = tab,
                                 isSelected = isSelected,
-                                onClick = { onTabChange(originalIndex) },
+                                onClick = { onTabChange(tab.key.toInt()) },
                                 enabled = progress < 0.2f,
                                 labelAlpha = (1f - progress * 3f).coerceIn(0f, 1f)
                             )
@@ -232,7 +233,7 @@ fun MorphingNavigationBar(
         }
 
         // 2. Single centered selected item (Rendered LAST so it's on top of the LazyRow)
-        val selectedTab = tabs.getOrNull(tabIndex)
+        val selectedTab = tabs.firstOrNull { it.key == tabIndex.toString() }
         if (selectedTab != null) {
             Box(modifier = Modifier.graphicsLayer { 
                 alpha = singleIconAlpha 

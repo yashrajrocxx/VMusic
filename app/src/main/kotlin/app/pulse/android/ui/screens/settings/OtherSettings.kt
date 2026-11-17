@@ -309,8 +309,7 @@ fun OtherSettings() {
                                 enabled = !reloading,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(start = 16.dp)
-                                    .padding(horizontal = 16.dp)
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
                             )
 
                             Spacer(modifier = Modifier.height(12.dp))
@@ -330,8 +329,7 @@ fun OtherSettings() {
                                 enabled = !reloading,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(start = 16.dp)
-                                    .padding(horizontal = 16.dp)
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
                             )
 
                             if (app.pulse.android.BuildConfig.DEBUG) {
@@ -345,8 +343,7 @@ fun OtherSettings() {
                                     enabled = !reloading,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(start = 16.dp)
-                                        .padding(horizontal = 16.dp)
+                                        .padding(horizontal = 16.dp, vertical = 4.dp)
                                 )
                             }
                         } else SecondaryTextButton(
@@ -360,8 +357,7 @@ fun OtherSettings() {
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(start = 16.dp, bottom = 16.dp)
-                                .padding(horizontal = 16.dp)
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
                         )
                     }
                 }

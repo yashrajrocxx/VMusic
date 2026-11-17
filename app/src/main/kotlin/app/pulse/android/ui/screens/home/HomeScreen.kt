@@ -30,6 +30,7 @@ import app.pulse.android.ui.screens.searchRoute
 import app.pulse.android.ui.screens.recognition.RecognitionScreen
 import app.pulse.android.ui.screens.radio.RadioScreen
 import app.pulse.android.ui.screens.settings.SettingsScreen
+import app.pulse.android.ui.screens.together.TogetherScreen
 import app.pulse.compose.persist.PersistMapCleanup
 import app.pulse.compose.routing.Route0
 import app.pulse.compose.routing.RouteHandler
@@ -120,6 +121,7 @@ fun HomeScreen() {
                     tab(6, R.string.albums, R.drawable.disc)
                     tab(7, R.string.local, R.drawable.download)
                     tab(8, R.string.recognize, R.drawable.mic)
+                    tab(10, R.string.together, R.drawable.users)
                     tab(9, R.string.settings, R.drawable.settings)
                 }
             ) { currentTabIndex ->
@@ -176,6 +178,8 @@ fun HomeScreen() {
                         )
 
                         8 -> RecognitionScreen()
+
+                        10 -> TogetherScreen()
 
                         9 -> SettingsScreen(
                             onBackClick = {

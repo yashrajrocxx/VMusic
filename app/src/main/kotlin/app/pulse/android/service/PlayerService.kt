@@ -8,6 +8,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.media.AudioDeviceCallback
+import app.pulse.android.BuildConfig
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.MediaDescription
@@ -460,6 +461,12 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
         audible = playerA
 
         app.pulse.core.data.di.setExoPlayer(playerA)
+        runCatching {
+            // Bind the SAME binder instance onBind() hands out: a fresh
+            // Binder() would make the UI's later bind look like a service
+            // handoff and recreate the sync adapter.
+            app.pulse.android.listentogether.ListenTogetherCoordinator.bind(binder)
+        }
 
         updateRepeatMode()
         maybeRestorePlayerQueue()
@@ -570,6 +577,13 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
 
     override fun onDestroy() {
         runCatching {
+            // The room socket outlives this service: tell members to pause
+            // BEFORE the players are torn down, otherwise they keep playing
+            // forever while the host is silent. Nested so a room-side failure
+            // can never skip the service cleanup below.
+            runCatching {
+                app.pulse.android.listentogether.ListenTogetherCoordinator.onPlayerServiceDestroyed()
+            }
             maybeSavePlayerQueue(immediate = true)
 
             fadeJob?.cancel()
@@ -900,7 +914,7 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
                     while (dataSource.read(buffer, 0, buffer.size) > 0) { }
                     dataSource.close()
 
-                    Log.d(TAG, "pre-fetched chunk $position for $videoId")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "pre-fetched chunk $position for $videoId")
                 } catch (e: Exception) {
                     Log.w(TAG, "pre-fetch chunk $position failed: ${e.message}")
                 }
@@ -1081,7 +1095,7 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
             if (abortedFadeNextId == videoId) {
                 abortedFadeOutId = null
                 abortedFadeNextId = null
-                Log.d(TAG, "probe cleared crossfade guard for $videoId")
+                if (BuildConfig.DEBUG) Log.d(TAG, "probe cleared crossfade guard for $videoId")
             }
         }
     }
@@ -1279,6 +1293,12 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
         outgoing.pause()
         outgoing.stop() // releases the decoder so the overlap window stays short
         Log.d(TAG, "crossfade complete, audible=${incoming.currentMediaItem?.mediaId}")
+
+        // The sync engine binds listeners/loads to the AUDIBLE player — a swap
+        // without re-announcement strands the room on the paused decoder.
+        runCatching {
+            app.pulse.android.listentogether.ListenTogetherCoordinator.onAudiblePlayerSwapped()
+        }
 
         // The outgoing player's AUTO transition to the next song may have been
         // delivered before or after this swap (we just removed its listener), so
@@ -2231,22 +2251,25 @@ class PlayerService : InvincibleService(), Player.Listener, PlaybackStatsListene
             }
 
             resolveScope.launch {
-                runCatching {
-                    transaction {
-                        mediaItem?.let(Database::insert)
-                        Database.insert(
-                            Format(
-                                songId = mediaId,
-                                itag = playbackData.itag,
-                                mimeType = playbackData.mimeType,
-                                bitrate = playbackData.bitrate,
-                                loudnessDb = playbackData.loudnessDb?.toFloat(),
-                                contentLength = playbackData.contentLength,
-                                lastModified = null,
-                                url = playbackData.streamUrl
-                            )
+                // Seed the library row and cache the format as sibling
+                // transactions: a failed format write (e.g. unknown/foreign-key
+                // parent) must not roll back the song seed.
+                transaction {
+                    mediaItem?.let(Database::insert)
+                }
+                transaction {
+                    Database.insert(
+                        Format(
+                            songId = mediaId,
+                            itag = playbackData.itag,
+                            mimeType = playbackData.mimeType,
+                            bitrate = playbackData.bitrate,
+                            loudnessDb = playbackData.loudnessDb?.toFloat(),
+                            contentLength = playbackData.contentLength,
+                            lastModified = null,
+                            url = playbackData.streamUrl
                         )
-                    }
+                    )
                 }
             }
 

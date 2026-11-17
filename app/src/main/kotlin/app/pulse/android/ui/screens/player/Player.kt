@@ -388,6 +388,9 @@ private fun PlayerMenu(
 }
 
 private fun onDismiss(binder: PlayerService.Binder) {
+    // Let the hosting room pause on the last known playhead before the
+    // player contents vanish (otherwise guests keep playing stale audio).
+    app.pulse.android.listentogether.ListenTogetherCoordinator.onLocalPlaybackEnding()
     binder.stopRadio()
     binder.player.clearMediaItems()
 }

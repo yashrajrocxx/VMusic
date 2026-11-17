@@ -45,6 +45,7 @@ object PlayerPreferences : GlobalPreferencesHolder() {
     var lyricsKeepScreenAwake by boolean(true)
     var lyricsFontSize by int(24)
     var lyricsShowSystemBars by boolean(true)
+    var romanizeLyrics by boolean(false)
 
     var skipOnError by boolean(false)
     var handleAudioFocus by boolean(true)

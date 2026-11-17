@@ -2,9 +2,17 @@ package app.pulse.core.data.models
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "Song")
+@Entity(
+    tableName = "Song",
+    indices = [
+        Index(value = ["title"]),
+        Index(value = ["totalPlayTimeMs"]),
+        Index(value = ["likedAt"])
+    ]
+)
 data class SongEntity(
     @PrimaryKey val id: String,
     val title: String,

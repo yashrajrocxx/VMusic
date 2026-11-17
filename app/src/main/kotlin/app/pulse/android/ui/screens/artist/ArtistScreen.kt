@@ -37,6 +37,7 @@ import app.pulse.android.ui.screens.Route
 import app.pulse.android.ui.screens.albumRoute
 import app.pulse.android.ui.screens.searchresult.ItemsPage
 import app.pulse.android.utils.asMediaItem
+import app.pulse.android.utils.addNext
 import app.pulse.android.utils.forcePlay
 import app.pulse.android.utils.playingSong
 import app.pulse.compose.persist.PersistMapCleanup
@@ -240,6 +241,7 @@ fun ArtistScreen(browseId: String) {
                                             binder?.setupRadio(song.info?.endpoint)
                                         }
                                     ),
+                                    onPlayNext = { binder?.player?.addNext(song.asMediaItem) },
                                     isPlaying = playing && currentMediaId == song.key
                                 )
                             },
